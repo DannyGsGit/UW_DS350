@@ -98,22 +98,25 @@ p.dist
 
 #### Calculate summary stats ####
 
+# Probability function
 f_probability <- function(data, n) {
   # p = win / n
   probability <- sum(data) / n
   return(probability)
 }
 
+# Variance function
 f_variance <- function(p, n) {
   # Var = np(1-p)
   variance <- n * p * (1 - p)
   return(variance)
 }
 
-# Switch Strategy:
+
+# Switch Strategy Stats:
 prob.switch <- f_probability(data = simulation_result$switch, n = n)
 var.switch <- f_variance(p = prob.switch, n = 1)
 
-# Don't Switch Strategy:
+# Don't Switch Strategy Stats:
 prob.original <- f_probability(data = simulation_result$original, n = n)
 var.original <- f_variance(p = prob.original, n = 1)
