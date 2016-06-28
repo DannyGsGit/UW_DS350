@@ -73,7 +73,7 @@ simulation_result<- data.frame(t(replicate(n, f_monty_hall_single_run(), simplif
 
 # Unlist column formats for analysis
 simulation_result <- data.frame(apply(simulation_result, 2, unlist))
-
+simulation_result$run <- 1:n
 
 
 
@@ -83,14 +83,14 @@ simulation_result <- data.frame(apply(simulation_result, 2, unlist))
 
 # Melt simulation results for plotting
 library(reshape2)
-plot.data <- melt(simulation_result)
+plot.data <- melt(simulation_result, id = "run")
 
 # Build ggplot histogram with facet
 library(ggplot2)
 p.dist <- ggplot(plot.data, aes(value)) +
   geom_histogram(bins = 3) +
   facet_grid(variable ~ .)
-p.dist
+print(p.dist)
 
 
 
@@ -120,3 +120,9 @@ var.switch <- f_variance(p = prob.switch, n = 1)
 # Don't Switch Strategy Stats:
 prob.original <- f_probability(data = simulation_result$original, n = n)
 var.original <- f_variance(p = prob.original, n = 1)
+
+# Stats data frame:
+stats.df <- data.frame(Switch = c(prob.switch, var.switch),
+                       Original = c(prob.original, var.original))
+row.names(stats.df) <- c("Probability", "Variance")
+print(stats.df)
