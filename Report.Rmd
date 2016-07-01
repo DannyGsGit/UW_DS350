@@ -1,19 +1,17 @@
-#### Assignment 2 ####
-# Prepared By: Danny Godbout
+---
+title: "Assignment 2 Results"
+author: "Danny Godbout"
+date: "June 30, 2016"
+output: html_document
+---
 
-# Goal: 
-# Write an R-script to compute the Monty Hall Probabilities with
-# simulations (get probabilities AND variances for switching and
-# not switching).
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
 
-
+```{r echo=FALSE, warning=FALSE}
 #### Monty Hall Simulation Function ####
-# Setup: 3 doors; 2 = Goat, 1 = Car
-# 1- Pick a door
-# 2- Host opens one of the remaining 2 doors, revealing a goat
-# 3- Either keep current choice, or switch doors
-
 
 f_monty_hall_single_run <- function() {
   # This function runs a single cycle of the monty hall problem, returning
@@ -66,7 +64,7 @@ f_monty_hall_single_run <- function() {
 #### Run multiple time ####
 
 # Set number of runs
-n <- 1000
+n <- 10000
 
 # Run simulation
 simulation_result<- data.frame(t(replicate(n, f_monty_hall_single_run(), simplify = "matrix")))
@@ -74,11 +72,13 @@ simulation_result<- data.frame(t(replicate(n, f_monty_hall_single_run(), simplif
 # Unlist column formats for analysis
 simulation_result <- data.frame(apply(simulation_result, 2, unlist))
 simulation_result$run <- 1:n
+```
 
+## Monty Hall Simulation Results
 
+The following figure displays the results of the Monty Hall simulations. Plotted are 10,000 runs using a "switch" strategy in which the contestant switches their door of choice, and 10,000 runs in which the contestant keeps their original choice. For this histogram, an X value of 1 indicates a win, while X=0 indicates a loss. We can see that the "Switch" strategy results in a win in approximately 2/3 of the simulations, while staying with the original choice only wins 1/3 of the time.
 
-
-
+```{r echo=FALSE, warning=FALSE}
 #### Plot results ####
 
 # Melt simulation results for plotting
@@ -91,11 +91,10 @@ p.dist <- ggplot(plot.data, aes(value, fill = factor(value))) +
   geom_histogram(bins = 3) +
   facet_grid(variable ~ .)
 print(p.dist)
+```
 
-
-
-
-
+Summary statistics for the two strategies are shown below. We see that the probability of a win is 0.66 with the "switch" strategy, with a variance of 0.22 (assuming n=1). 
+``` {r echo = FALSE, warning=FALSE}
 #### Calculate summary stats ####
 
 ## Probability function
@@ -126,3 +125,4 @@ stats.df <- data.frame(Switch = c(prob.switch, var.switch),
                        Original = c(prob.original, var.original))
 row.names(stats.df) <- c("Probability", "Variance")
 print(stats.df)
+```
