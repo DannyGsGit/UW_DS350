@@ -49,8 +49,8 @@ f_monty_hall_single_run <- function() {
   switched_door <- all_doors[all_doors != first_choice_door & all_doors != host_door]
   
   # Which choice won a car?
-  switch_win <- ifelse(switched_door == car_door, 1, 0)  # The new, switch choice won
-  original_win <- ifelse(first_choice_door == car_door, 1, 0)  # The original door won
+  switch_win <- ifelse(switched_door == car_door, "car", "goat")  # The new, switch choice won
+  original_win <- ifelse(first_choice_door == car_door, "car", "goat")  # The original door won
   
   # Merge
   results <- data.frame(switch = switch_win, original = original_win)
@@ -88,7 +88,7 @@ plot.data <- melt(simulation_result, id = "run")
 # Build ggplot histogram with facet
 library(ggplot2)
 p.dist <- ggplot(plot.data, aes(value, fill = factor(value))) +
-  geom_histogram(bins = 3) +
+  geom_bar() +
   facet_grid(variable ~ .)
 print(p.dist)
 
@@ -101,7 +101,7 @@ print(p.dist)
 ## Probability function
 f_probability <- function(data, n) {
   # p = win / n
-  probability <- sum(data) / n
+  probability <- length(which(data == "car")) / n
   return(probability)
 }
 
