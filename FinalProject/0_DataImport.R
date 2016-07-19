@@ -70,9 +70,6 @@ retail.data$day.of.week <- wday(retail.data$InvoiceDate, label = TRUE)
 # Day of month
 retail.data$day.of.month <- mday(retail.data$InvoiceDate)
 
-# Week of month
-retail.data$week.of.month <- mweek(retail.data$InvoiceDate)
-
 # Month of year
 retail.data$month <- month(retail.data$InvoiceDate, label = TRUE)
 retail.data$year <- year(retail.data$InvoiceDate)
@@ -120,4 +117,47 @@ region.SKU.summary <- f_basic_summary(group_by(retail.data, Country, StockCode))
 
 
 #### Customer segmentation & comparison of purchasing behavior between segments
-####      Customer lifetime value analysis
+
+## Customer segmentation
+# Generate list of StockCodes purchased by more than one customer and with total sales > 1
+SKU.list <- SKU.summary %>% filter(customers > 1, volume > 1) %>% select(StockCode)
+
+# Filter down the SKU-Customer summary to only include SKUs listed above
+customer.orders <- customer.SKU.summary %>%
+  inner_join(SKU.list, by = "StockCode") %>%
+  filter(volume > 0) %>%
+  select(CustomerID, StockCode) %>%
+  mutate(Count = 1)
+
+# Translate the list-style table into a sparse matrix with rows as customers and columns as SKUs
+sparse.customer.orders <- dcast(customer.orders, CustomerID ~ StockCode)
+rownames(sparse.customer.orders) <- sparse.customer.orders$CustomerID  # Set customer names to the rowname
+sparse.customer.orders$CustomerID <- NULL  # Remove the customer name column
+sparse.customer.orders[is.na(sparse.customer.orders)] <- 0  # Replace NA with 0
+
+library(NMF)
+
+fit<-nmf(sparse.customer.orders[1:100, ], 5, "lee", nrun=10)
+basismap(fit)
+coefmap(fit)
+
+# code for sorting and printing
+# the two factor matrices
+h<-coef(fit)
+library(psych)
+fa.sort(t(round(h,3)))
+w<-basis(fit)
+wp<-w/apply(w,1,sum)
+fa.sort(round(wp,3))
+
+# hard clustering
+type<-max.col(w)
+table(type)
+t(aggregate(Scotch, by=list(type), FUN=mean))
+
+
+
+
+
+
+## Customer lifetime value analysis

@@ -1,0 +1,348 @@
+---
+title: "Assignment 3"
+author: "Danny Godbout"
+date: "July 12, 2016"
+output: html_document
+---
+
+## Introduction
+
+The purpose of this assignment is to evaluate the effects of fuel type, aspiration, and drive wheels on the price of vehicles in the Automobile Price dataset.
+
+```{r, include = FALSE}
+#### Load libraries ####
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+library(knitr)
+
+
+
+#### Load automobile dataset ####
+auto.data <- read.csv('Automobile price data _Raw_.csv', stringsAsFactors = FALSE)
+
+
+
+
+
+#### Select proper columns and set format ####
+
+## Select columns we will use for stratification
+auto.data <- auto.data %>% select(price, fuel.type, aspiration, drive.wheels)
+
+## Set types on factor columns
+factor.cols <- c("fuel.type", "aspiration", "drive.wheels")
+auto.data[, factor.cols] <- lapply(auto.data[factor.cols], as.factor)
+
+## Set types on numeric columns
+numeric.cols <- c("price")
+auto.data[, numeric.cols] <- lapply(auto.data[numeric.cols], as.numeric)
+```
+
+## Normality Tests
+
+After importing and typing the data, we first analyze the normality of the price data using a Shapiro-Wilk's normality test and visually inspecting with a Q-Q plot. Due to obvious non-normality of the raw price data, the price column is log-transformed and tested for normality as well.
+
+#### Price
+
+The Shapiro-Wilk result of W = 0.8 indicates some skewing, and a p < 0.001 means we reject the null hypothesis that the sample is normally distributed. This conclusion is supported by visual inspection of the Q-Q plot showing deviations from the expected diagonal line at the tails.
+```{r, echo = FALSE, warning = FALSE}
+
+#### Calculate log-price column ####
+
+auto.data <- auto.data %>% mutate(log.price = log(price))
+
+
+#### Test price and log-price for normality ####
+
+f_normality_tests <- function(target) {
+  ## This function will perform a Shapiro-Wilk's test and produce a qq-plot
+  ## for a target column from a dataframe
+  ##
+  ## Input args: 
+  ##    target- dataframe column to be tested
+  ## Outputs:
+  ##    Prints results of shapiro-wilk's test
+  ##    Prints qqplot of target
+  
+  print(substitute(target))
+
+  # Perform shapiro-wilk's normality test
+  print(shapiro.test(target))
+  
+  # Produce qq-plot
+  qqnorm(scale(target), pch=16)
+  abline(0,1, lwd=2, col="red")
+  
+}
+
+## Run Shapiro Wilk's test on target columns
+
+f_normality_tests(auto.data$price)
+```
+
+#### Log Price
+
+Transforming the price column with a log-price, we see an improvement in the Shapiro-Wilk W score approaching 1. However, the p-value remains < 0.001 and we must reject the null hypothesis that the sample is normally distributed. The Q-Q plot shows that while the distribution is much improved, there is still some skewing at the tails.
+
+```{r, echo = FALSE, warning = FALSE}
+
+f_normality_tests(auto.data$log.price)
+
+```
+
+## T-Tests
+
+T-tests were performed on price and log-price, stratified by fuel type (diesel-gas), aspiration (normal-turbo) and drive wheels (rear-front). A Welch t-test was used to compare mean prices between stratification groups. Welch is more robust than a Student t to skewed data. A two-tailed analysis was performed as we simply care about price differences, and not the direction of any difference.
+
+#### Fuel Type
+
+The following hypotheses are formulated for comparison of price/log-price on fuel type
+$$ H_0 : \mu_{Diesel} = \mu_{Gas} $$
+$$ H_1 : \mu_{Diesel} < \mu_{Gas} $$
+$$ H_2 : \mu_{Diesel} > \mu_{Gas} $$
+
+Visual inspection of the boxplots of both price and log-price indicate significant overlap of the first through third quartiles. The p-values of the t-tests indicate that we fail to reject the null hypothesis and there is **no significant difference in mean price of diesel and gas cars at the 0.05 level.** 
+
+```{r, echo=FALSE, warning = FALSE}
+
+#### Test significance of price stratified on specific features ####
+
+f_welch_t_test <- function(data, melt.id) {
+  ## This function performs t-tests and produced boxplots on price and log-price of data stratified on a "melt.id".
+  ## A Welch's t-test is used due to the following assumptions:
+  ##    * Skewness appears in normality test, Welch's is more robust than Student's to skewness
+  ##    * Two-tailed test as we are interested in difference in means between two groups, regardless of direction
+  ##
+  ## Input args:
+  ##    data - input dataframe with "price" and "log.price" columns
+  ##    melt.id - column name of stratification variable
+  ## Outputs:
+  ##    Print boxplots of price and logprice data
+  ##    t.test.results- table of t.test results for price and logprice
+  
+  # Filter input dataframe down to the stratification variable and price/logprice columns, and melt into EAV format
+  target.vars <- c("price", "log.price")
+  stratified.auto.data <- data %>% melt(id = melt.id, na.rm = TRUE) %>% filter(variable %in% target.vars)
+  colnames(stratified.auto.data) <- c("melt.var", "variable", "value")
+  stratified.auto.data$value <- as.numeric(stratified.auto.data$value)
+  
+  # Perform t-test on price data
+  price.data <- stratified.auto.data %>% filter(variable == "price")
+  price.t.test <- t.test(value ~ melt.var, data = price.data)
+  
+  # Perform t-test on logprice data
+  log.price.data <- stratified.auto.data %>% filter(variable == "log.price")
+  log.price.t.test <- t.test(value ~ melt.var, data = log.price.data)
+ 
+  # Generate boxplots for price and logprice data
+  p.boxplot <- ggplot(stratified.auto.data, aes(melt.var, value)) +
+    geom_boxplot() +
+    facet_grid(variable ~ ., scales = "free") +
+    labs(title = paste("Box plots of ", melt.id, sep = ""),
+         x = melt.id)
+  print(p.boxplot)
+  
+  
+  # Combine t-test results into a single table
+
+  t.test.results <- data.frame("comparison" = c("price", "log.price"),
+                               "p" = c(price.t.test$p.value, log.price.t.test$p.value),
+                               "mean.estimate.A" = c(price.t.test$estimate[1], exp(log.price.t.test$estimate[1])),
+                               "mean.estimate.B" = c(price.t.test$estimate[2], exp(log.price.t.test$estimate[2])))
+  
+  # Set names on t.test.results to use the melt.id. This can't be done programatically when building the DF, so it's done
+  # separately using the colnames function()
+  groups <- levels(as.factor(stratified.auto.data$melt.var))
+  
+  colnames(t.test.results) <- c("comparison", "p",
+                                paste("mean.estimate.", groups[1], sep = ""),
+                                paste("mean.estimate.", groups[2], sep = ""))
+  
+  # Return results table
+  kable(t.test.results)
+}
+
+
+# Perform t-test on fuel type, aspiration, and drive wheels variables
+f_welch_t_test(data = auto.data, melt.id = "fuel.type")
+```
+
+
+#### Aspiration
+
+The following hypotheses are formulated for comparison of price/log-price on aspiration
+$$ H_0 : \mu_{Std} = \mu_{Turbo} $$
+$$ H_1 : \mu_{Std} < \mu_{Turbo} $$
+$$ H_2 : \mu_{Std} > \mu_{Turbo} $$
+
+The p-values of both price and log-price t-tests indicate that we reject the null hypothesis and there is **significant difference in mean price of normally and turbo aspirated cars at the 0.05 level.** Based on the estimated means of each group, it appears that the price of turbo vehicles is significantly higher than normally aspirated (alternative hypothesis H1).
+
+```{r, echo=FALSE, warning = FALSE}
+f_welch_t_test(data = auto.data, melt.id = "aspiration")
+```
+
+#### Drive wheels
+
+The following hypotheses are formulated for comparison of price/log-price on drive wheels
+$$ H_0 : \mu_{Rear} = \mu_{Front} $$
+$$ H_1 : \mu_{Rear} < \mu_{Front} $$
+$$ H_2 : \mu_{Rear} > \mu_{Front} $$
+
+The p-values of both price and log-price t-tests indicate that we reject the null hypothesis and there is **significant difference in mean price of front and rear drive cars at the 0.05 level.** Based on the estimated means of each group, it appears that the price of rear drive vehicles is significantly higher than front drive (alternative hypothesis H2).
+
+```{r, echo=FALSE, warning = FALSE}
+drive.wheels.data <- auto.data %>% filter(drive.wheels != "4wd") %>% droplevels()
+f_welch_t_test(data = drive.wheels.data, melt.id = "drive.wheels")
+```
+
+
+
+
+
+## Source code
+```{r, eval = FALSE}
+#### Load libraries ####
+
+library(dplyr)
+library(reshape2)
+library(ggplot2)
+
+
+
+
+#### Function definitions ####
+
+f_normality_tests <- function(target) {
+  ## This function will perform a Shapiro-Wilk's test and produce a qq-plot
+  ## for a target column from a dataframe
+  ##
+  ## Input args: 
+  ##    target- dataframe column to be tested
+  ## Outputs:
+  ##    Prints results of shapiro-wilk's test
+  ##    Prints qqplot of target
+  
+  print(substitute(target))
+
+  # Perform shapiro-wilk's normality test
+  print(shapiro.test(target))
+  
+  # Produce qq-plot
+  qqnorm(scale(target), pch=16)
+  abline(0,1, lwd=2, col="red")
+  
+}
+
+
+f_welch_t_test <- function(data, melt.id) {
+  ## This function performs t-tests and produced boxplots on price and log-price of data stratified on a "melt.id".
+  ## A Welch's t-test is used due to the following assumptions:
+  ##    * Skewness appears in normality test, Welch's is more robust than Student's to skewness
+  ##    * Two-tailed test as we are interested in difference in means between two groups, regardless of direction
+  ##
+  ## Input args:
+  ##    data - input dataframe with "price" and "log.price" columns
+  ##    melt.id - column name of stratification variable
+  ## Outputs:
+  ##    Print boxplots of price and logprice data
+  ##    t.test.results- table of t.test results for price and logprice
+  
+  # Filter input dataframe down to the stratification variable and price/logprice columns, and melt into EAV format
+  target.vars <- c("price", "log.price")
+  stratified.auto.data <- data %>% melt(id = melt.id, na.rm = TRUE) %>% filter(variable %in% target.vars)
+  colnames(stratified.auto.data) <- c("melt.var", "variable", "value")
+  stratified.auto.data$value <- as.numeric(stratified.auto.data$value)
+  
+  # Perform t-test on price data
+  price.data <- stratified.auto.data %>% filter(variable == "price")
+  price.t.test <- t.test(value ~ melt.var, data = price.data)
+  
+  # Perform t-test on logprice data
+  log.price.data <- stratified.auto.data %>% filter(variable == "log.price")
+  log.price.t.test <- t.test(value ~ melt.var, data = log.price.data)
+ 
+  # Generate boxplots for price and logprice data
+  p.boxplot <- ggplot(stratified.auto.data, aes(melt.var, value)) +
+    geom_boxplot() +
+    facet_grid(variable ~ ., scales = "free") +
+    labs(title = paste("Box plots of ", melt.id, sep = ""),
+         x = melt.id)
+  print(p.boxplot)
+  
+  # Combine t-test results into a single table
+  t.test.results <- data.frame("comparison" = c("price", "log.price"),
+                               "t" = c(price.t.test$statistic, log.price.t.test$statistic),
+                               "p" = c(price.t.test$p.value, log.price.t.test$p.value),
+                               "ci.95.low" = c(price.t.test$conf.int[1], exp(log.price.t.test$conf.int[1])),
+                               "ci.95.hi" = c(price.t.test$conf.int[2], exp(log.price.t.test$conf.int[2])),
+                               "mean.estimate.A" = c(price.t.test$estimate[1], exp(log.price.t.test$estimate[1])),
+                               "mean.estimate.B" = c(price.t.test$estimate[2], exp(log.price.t.test$estimate[2])))
+  
+  # Set names on t.test.results to use the melt.id. This can't be done programatically when building the DF, so it's done
+  # separately using the colnames function()
+  groups <- levels(as.factor(stratified.auto.data$melt.var))
+  
+  colnames(t.test.results) <- c("comparison", "t", "p",
+                                "ci.95.lo", "ci.95.hi",
+                                paste("mean.estimate.", groups[1], sep = ""),
+                                paste("mean.estimate.", groups[2], sep = ""))
+  
+  # Return results table
+  return(t.test.results)
+}
+
+
+
+
+#### Load automobile dataset ####
+
+auto.data <- read.csv('Automobile price data _Raw_.csv', stringsAsFactors = FALSE)
+
+
+
+
+#### Select proper columns and set format ####
+
+## Select columns we will use for stratification
+auto.data <- auto.data %>% select(price, fuel.type, aspiration, drive.wheels)
+
+## Set types on factor columns
+factor.cols <- c("fuel.type", "aspiration", "drive.wheels")
+auto.data[, factor.cols] <- lapply(auto.data[factor.cols], as.factor)
+
+## Set types on numeric columns
+numeric.cols <- c("price")
+auto.data[, numeric.cols] <- lapply(auto.data[numeric.cols], as.numeric)
+
+
+
+
+#### Calculate log-price column ####
+
+auto.data <- auto.data %>% mutate(log.price = log(price))
+
+
+
+
+#### Test price and log-price for normality ####
+
+# Run Shapiro Wilk's test on target columns
+f_normality_tests(auto.data$price)
+
+f_normality_tests(auto.data$log.price)
+
+
+
+
+#### Test significance of price stratified on specific features ####
+
+# Perform t-test on fuel type, aspiration, and drive wheels variables
+f_welch_t_test(data = auto.data, melt.id = "fuel.type")
+
+f_welch_t_test(data = auto.data, melt.id = "aspiration")
+
+drive.wheels.data <- auto.data %>% filter(drive.wheels != "4wd") %>% droplevels()
+f_welch_t_test(data = drive.wheels.data, melt.id = "drive.wheels")
+
+```
