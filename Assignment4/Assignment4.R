@@ -55,7 +55,7 @@ auto.data <- auto.data %>% mutate(log.price = log(price))
 #### Graphically compare variables ####
 
 ## Graphical analysis function
-graph_analysis <- function(data, dependent, independent) {
+f_graph_analysis <- function(data, dependent, independent) {
   
   # Select columns and remove rows with blanks
   plot.data <- data[, c(dependent, independent)]
@@ -85,25 +85,61 @@ graph_analysis <- function(data, dependent, independent) {
 }
 
 ## Make
-graph_analysis(data = auto.data, dependent = "log.price", "make")
+f_graph_analysis(data = auto.data, dependent = "log.price", "make")
 
 ## Body Style
-graph_analysis(data = auto.data, dependent = "log.price", "body.style")
+f_graph_analysis(data = auto.data, dependent = "log.price", "body.style")
 
 ## Drive Wheels
-graph_analysis(data = auto.data, dependent = "log.price", "drive.wheels")
+f_graph_analysis(data = auto.data, dependent = "log.price", "drive.wheels")
 
 ## Cylinder count
-graph_analysis(data = auto.data, dependent = "log.price", "num.of.cylinders")
+f_graph_analysis(data = auto.data, dependent = "log.price", "num.of.cylinders")
 
 ## Engine Type
-graph_analysis(data = auto.data, dependent = "log.price", "engine.type")
+f_graph_analysis(data = auto.data, dependent = "log.price", "engine.type")
 qplot(auto.data$engine.type, auto.data$make)
 
 
 
 
 
+
+
 #### ANOVA ####
-# aov_df = aov(log.price ~ group, data = df)
-# TukeyHSD(aov_df)
+
+# ANOVA Functions
+f_anova_analyses <- function(data, formula) {
+  # Calculate basic ANOVA
+  anova.df <- aov(formula, data = data)
+  # Print ANOVA table
+  print(summary(anova.df))
+  # Set a 2x2 plot layout and print diagnostic plots
+  layout(matrix(c(1,2,3,4),2,2))
+  plot(anova.df)
+  
+  # Calculate Tukey ANOVA
+  tukey.df <- TukeyHSD(anova.df)
+  # Print Tukey table
+  print(tukey.df)
+  # Reset plot layout to 1x1 and print Tukey plot
+  layout(matrix(c(1),1,1))
+  plot(tukey.df)
+}
+
+
+# Make
+f_anova_analyses(auto.data, formula(log.price ~ make))
+
+# Body style
+f_anova_analyses(auto.data, formula(log.price ~ body.style))
+
+# Number of cylinders
+f_anova_analyses(auto.data, formula(log.price ~ num.of.cylinders))
+
+# Engine type
+f_anova_analyses(auto.data, formula(log.price ~ engine.type))
+
+
+#### Bootstrap means ####
+
