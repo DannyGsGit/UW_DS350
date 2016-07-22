@@ -1,5 +1,6 @@
 #### Analyses To Do: ####
-# Check normality of price- transform column?
+# Check normality and transform
+# By-order summary
 # Region by day/week/month
 # Customer segmentation & comparison of purchasing behavior between segments
 # Customer lifetime value analysis
@@ -67,12 +68,7 @@ f_process_returns <- function(order.data) {
   order.data$syn.key <- paste(order.data$CustomerID, order.data$StockCode, sep = "")
   
   ####### Loop this:
-  
 
-  # Subtract leading returns from current customer-SKU synkey
-  # order.data <- order.data %>% mutate(adj.qty = ifelse(lead(return) == TRUE & lead(syn.key) == syn.key, Quantity + lead(Quantity), Quantity))
-
-  
   ## Nice test customer: zz <- order.data %>% filter(CustomerID == 12471)
   
   returns.left <- length(which(order.data$return == TRUE))
@@ -83,27 +79,21 @@ f_process_returns <- function(order.data) {
     # Subtract quantity from prior customer order
     order.data <- order.data %>% mutate(prior.qty = ifelse(syn.key == lag(syn.key), lag(Quantity), 0))
     order.data$prior.qty <- replace(order.data$prior.qty, is.na(order.data$prior.qty), 0)
-    zz.1 <- order.data %>% filter(CustomerID == 12471)
     
     # When current is order and leading, matching synkey is a return, subtract from the current order
     order.data <- order.data %>% mutate(adj.qty = ifelse(lead(syn.key) == syn.key & return == FALSE & lead(return) == TRUE, adj.qty + lead(adj.qty), adj.qty))
-    zz.2 <- order.data %>% filter(CustomerID == 12471)
-    
+
     # When current synkey is a return and prior is an order, set adj.qty = 0 (flag for deletion) 
     order.data <- order.data %>% mutate(adj.qty = ifelse(lag(syn.key) == syn.key & return == TRUE & lag(return) == FALSE, 0, adj.qty))
-    zz.3 <- order.data %>% filter(CustomerID == 12471)
-    
+
     # Remove RETURNS with no leading ORDER
     order.data <- order.data %>% mutate(adj.qty = ifelse(return == TRUE & prior.qty == 0, 0, adj.qty))
     
     # Remove rows where adj.qty = 0
     order.data <- order.data %>% filter(adj.qty != 0)
-    zz.4 <- order.data %>% filter(CustomerID == 12471)
-    
+
     # Set RETURN on all negative quantities to TRUE
     order.data <- order.data %>% mutate(return = ifelse(adj.qty < 0, TRUE, FALSE))
-    zz.5 <- order.data %>% filter(CustomerID == 12471)
-    
     
     # Are there any returns left?
     returns.left <- length(which(order.data$return == TRUE))
@@ -114,6 +104,11 @@ f_process_returns <- function(order.data) {
   
 }
 
+# Normality tests
+f_norm_test <- function(data) {
+  qqnorm(data)
+  qqline(data)
+}
 
 # Summarization function for aggregate statistics
 f_basic_summary <- function(grouped.data) {
@@ -121,9 +116,12 @@ f_basic_summary <- function(grouped.data) {
   current.summary <- summarise(grouped.data,
                                orders = n_distinct(InvoiceNo),
                                customers = n_distinct(CustomerID),
-                               volume = sum(Quantity),
-                               total.contribution = sum(Quantity * UnitPrice),
-                               mean.contribution = mean(UnitPrice))
+                               volume = sum(adj.qty),
+                               log.volume = log(sum(adj.qty)),
+                               total.contribution = sum(adj.qty * UnitPrice),
+                               log.total.contribution = log(sum(adj.qty * UnitPrice)),
+                               mean.contribution = mean(UnitPrice),
+                               log.mean.contribution = log(mean(UnitPrice)))
   
   return(current.summary)
 }
@@ -152,6 +150,10 @@ retail.data <- retail.data[-bad.SKU.index,]
 # Clean up returns
 retail.data <- f_process_returns(retail.data)
 
+# Add extended cost column
+retail.data <- retail.data %>% mutate(ext.cost = UnitPrice * adj.qty)
+retail.data <- retail.data %>% filter(ext.cost != 0)
+
 # Drop extinct levels
 retail.data <- droplevels(retail.data)
 
@@ -165,13 +167,17 @@ retail.data <- droplevels(retail.data)
 
 
 ## Run normality tests:
-qqnorm(retail.data$Quantity)
-qqline(retail.data$Quantity)
 
+# Unit Price
+f_norm_test(log(retail.data$UnitPrice))
 
+# Extended cost
+f_norm_test(log(retail.data$ext.cost))
 
+# adj.qty
+f_norm_test(log(retail.data$adj.qty))
 
-
+## All three numeric columns should be transformed for improved normality
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -232,6 +238,22 @@ pairs(region.summary)
 # 1) The UK is, by far the largest customer
 # 2) Singapore stands out as an outlier for high mean contribution. Interestingly, there is only a single customer that has
 #    placed 10 orders for >5,000 items with a mean contribution of >$100 per item.
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Bootstrap analyses
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+## SKU relationships
+
+## Time of week/month
 
 
 
