@@ -212,6 +212,12 @@ f_norm_test(log(retail.data$adj.qty))
 #### Summary stats and plots
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+## Generate alternate view where SKUs are collapsed into a single ORDER row
+order.summary <- f_basic_summary(group_by(retail.data, InvoiceNo, CustomerID, InvoiceDate))
+
+
+
+
 ## SKU popularity
 SKU.summary <- f_basic_summary(group_by(retail.data, StockCode))
 pairs(SKU.summary)
@@ -388,7 +394,7 @@ f_multi_hist <- function(data, simplify = FALSE, nbins = 80, p = 0.05,
 
 weekday.volume.bootstrap <- f_multilevel_one.boot(retail.data, "day.of.week", "adj.qty")
 
-f_multi_hist(weekday.volume.bootstrap, simplify = TRUE, plot.title = "Histogram of volume by weekday", y.label = "Volume", x.label = "Weekday")
+f_multi_hist(weekday.volume.bootstrap, simplify = FALSE, plot.title = "Histogram of volume by weekday", y.label = "Volume", x.label = "Weekday")
 
 
 
