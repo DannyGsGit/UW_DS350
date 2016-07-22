@@ -100,6 +100,8 @@ f_process_returns <- function(order.data) {
     print(returns.left)
   }
   
+  order.data <- order.data %>% select(-prior.qty, -syn.key, -return)
+  
   return(order.data)
   
 }
@@ -154,6 +156,12 @@ retail.data <- f_process_returns(retail.data)
 retail.data <- retail.data %>% mutate(ext.cost = UnitPrice * adj.qty)
 retail.data <- retail.data %>% filter(ext.cost != 0)
 
+# Extract interesting date characteristics
+retail.data$day.of.week <- wday(retail.data$InvoiceDate, label = TRUE)
+retail.data$month <- month(retail.data$InvoiceDate, label = TRUE)
+retail.data$year <- year(retail.data$InvoiceDate)
+retail.data$day.of.month <- mday(retail.data$InvoiceDate)
+
 # Drop extinct levels
 retail.data <- droplevels(retail.data)
 
@@ -180,8 +188,28 @@ f_norm_test(log(retail.data$adj.qty))
 ## All three numeric columns should be transformed for improved normality
 
 
+
+
+
+
+
+
+
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#### Popularity and seasonality of SKUs
+#### General plots
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# quantity- mean.contribution
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Summary stats and plots
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ## SKU popularity
@@ -194,7 +222,7 @@ pairs(SKU.summary)
 # 4) Cheaper items make the most revenue and volume in total as seen in mean.contribution - total.contribution chart
 
 ## Trends by day of week
-retail.data$day.of.week <- wday(retail.data$InvoiceDate, label = TRUE)
+
 daily.summary <- f_basic_summary(group_by(retail.data, day.of.week))
 pairs(daily.summary)
 # Insights:
@@ -206,15 +234,14 @@ pairs(daily.summary)
 #    of sales to resellers during midweek and consumers on Monday/Friday?
 
 ## Trends by day of month
-retail.data$day.of.month <- mday(retail.data$InvoiceDate)
+
 day.of.month.summary <- f_basic_summary(group_by(retail.data, day.of.month))
 pairs(day.of.month.summary)
 # Insights:
 # 1) Order intake peaks at beginning of month and drops off over the course of the month
 
 ## Trends by month
-retail.data$month <- month(retail.data$InvoiceDate, label = TRUE)
-retail.data$year <- year(retail.data$InvoiceDate)
+
 monthly.summary <- f_basic_summary(group_by(retail.data, month))
 monthly.SKU.summary <- f_basic_summary(group_by(retail.data, StockCode, month))  # Are some items summer items? Holiday items?
 pairs(monthly.summary)
@@ -255,10 +282,113 @@ pairs(region.summary)
 
 ## Time of week/month
 
+library(resample)
+library(simpleboot)
+library(lazyeval)
+
+## Bootstrapping functions
+f_multilevel_one.boot <- function(data, independent, dependent, type = "mean", R.count = 10000) {
+  ## Description: This function generates bootstrap samples of each level
+  ##              of an independent variable (e.g. "ford" and "gm" levels of variable "make").
+  ## Arguments:
+  ##    data: dataframe
+  ##    independent: independent variable column name
+  ##    dependent: dependent variable column name
+  ##    type: mean or median bootsrap
+  ##    R.count: number of bootstrap samples
+  
+  # Break out target levels
+  boot.levels <- levels(data[, independent])
+  
+  # Bootstrap means/medians of each level of independent variable
+  boots <- data.frame()  # Pre-allocate results dataframe
+  for (i in 1:length(boot.levels)) {
+    current.level.data <- data[which(data[, independent] == boot.levels[i]), ]  # Data for current level of independent variable
+    boot.level <- one.boot(current.level.data[, dependent], substitute(type), R = R.count)  # Bootstrap R.count iterations of mean/median of current data
+    boots <- rbind(boots, t(boot.level$t))  # Append results to boots dataframe
+  }
+  
+  # Re-orient results and name columns with independent variable levels
+  boots <- as.data.frame(t(boots))
+  colnames(boots) <- boot.levels
+  
+  return(boots)
+}
 
 
+## Bootstrap Plotting functions
+plot.hist <- function(a, maxs, mins, cols = 'difference of means', nbins = 80, p = 0.05) {
+  ## Description: Histogram plotting function copied from DS350 course code. 
+  breaks = seq(maxs, mins, length.out = (nbins + 1))
+  hist(a, breaks = breaks, main = paste('Histogram of', cols), xlab = cols)
+  abline(v = mean(a), lwd = 4, col = 'red')
+  abline(v = 0, lwd = 4, col = 'blue')
+  abline(v = quantile(a, probs = p/2), lty = 3, col = 'red', lwd = 3)  
+  abline(v = quantile(a, probs = (1 - p/2)), lty = 3, col = 'red', lwd = 3)
+}
 
 
+## Plot multiple histograms for bootstrap results on multiple levels
+f_multi_hist <- function(data, simplify = FALSE, nbins = 80, p = 0.05,
+                         plot.title = "Histogram", y.label = "mean log-price", x.label = "Level"){
+  ## Description: Builds multiple histograms of bootstrap results for variables with multiple levels.
+  ##              There is a "simplify" option to collapse histograms into simpler point-ranges for 
+  ##              cases where too many levels (more than ~5) generate an overwhelming number of histograms.
+  ##
+  ## Arguments:
+  ##    data: Bootstrap results
+  ##    simplify: Generates point-ranges instead of histograms when TRUE
+  ##    nbins: Number of histogram bins
+  ##    p: Confidence interval threshold
+  ##    plot.title: Plot title
+  ##    y.label: X label
+  ##    x.label: Y label
+  
+  # Get max and min values for plot limits
+  maxs = max(data)
+  mins = min(data)
+  
+  
+  # Show histograms when simplify == FALSE
+  if (simplify == FALSE) {
+    # Use par to merge multiple plots into a single plot window. Use ncol(data) to make as many plots as there are levels.
+    par(mfrow = c(ncol(data), 1))
+    # Generate each individual plot and add to the plot layout initiated in the previous line.
+    for (i in 1:ncol(data)) {
+      plot.hist(data[, i], maxs, mins, cols = colnames(data)[i])
+    }
+    title(plot.title, outer = TRUE, cex.main = 2)
+    # Reset plot window to 1x1 for future plots
+    par(mfrow = c(1, 1))
+  }
+  
+  
+  # Condense into pointrange plots when simplify == TRUE
+  if (simplify == TRUE) {
+    # Calculate mean, upr, lwr values
+    mean <- apply(data, 2, mean)
+    upr <- apply(data, 2, function(x) quantile(x, probs = 1 - p/2))
+    lwr <- apply(data, 2, function(x) quantile(x, probs = p/2))
+    # Combine basic stats into a dataframe
+    plot.data <- data.frame("name" = colnames(data), mean, upr, lwr)
+    # Make name column a factor type, and order factor levels by their means for ordered plotting
+    plot.data$name <- factor(plot.data$name, levels = plot.data$name[order(plot.data$mean)])
+    
+    # Generate pointrange plot of bootstrap results
+    p.multi <- ggplot(plot.data, aes(x = name, y = mean, ymin = lwr, ymax = upr)) +
+      geom_pointrange() +
+      coord_flip() +
+      geom_hline(yintercept = 0) +
+      lims(y = c(min(plot.data$lwr), max(plot.data$upr))) +
+      labs(title = plot.title, y = y.label, x = x.label)
+    print(p.multi)
+  }
+}
+
+
+weekday.volume.bootstrap <- f_multilevel_one.boot(retail.data, "day.of.week", "adj.qty")
+
+f_multi_hist(weekday.volume.bootstrap, simplify = TRUE, plot.title = "Histogram of volume by weekday", y.label = "Volume", x.label = "Weekday")
 
 
 
