@@ -1,20 +1,36 @@
+#### Analyses To Do: ####
+# Check normality of price- transform column?
+# Region by day/week/month
+# Customer segmentation & comparison of purchasing behavior between segments
+# Customer lifetime value analysis
+# Bootstrap interesting relationships for deeper investigation
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### Load libraries ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 library(dplyr)
 library(lubridate)
 library(reshape2)
+library(ggplot2)
 
 
-#### Import data ####
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Import and format dataset ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Online retail dataset from UCI ML library
 # Source: https://archive.ics.uci.edu/ml/datasets/Online+Retail
 retail.data <- read.csv("data/OnlineRetail.csv", stringsAsFactors = FALSE)
 
 
-
-
-
-#### Set formats ####
+## Set formats
 
 # Review original types
 str(retail.data)
@@ -34,130 +50,242 @@ str(retail.data)
 
 
 
-#### Cleansing ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Define Functions ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-## Remove orders from customers not registered with the site
-retail.data <- retail.data %>% filter(!is.na(CustomerID))
-
-
-## Returns append a "C" in front of the InvoiceNo. This makes it easy to match orders and their returns.
+# Returns processing function.
 f_process_returns <- function(order.data) {
   
   # Flog orders as returns
   return.columns <- c("InvoiceNo", "StockCode", "CustomerID", "Quantity")
   return.index <- grep("c", order.data$InvoiceNo, ignore.case = TRUE)
-  return.data <- order.data[return.index, return.columns]
+  order.data$return <- FALSE
+  order.data$return[return.index] <- TRUE
   
-  # Subtract quantity from prior customer order
-  # Look at dplyr lead/lag functions
+  # Generate synthetic key of customer-SKU combination to simplify window functions
+  order.data$syn.key <- paste(order.data$CustomerID, order.data$StockCode, sep = "")
+  
+  ####### Loop this:
+  
+
+  # Subtract leading returns from current customer-SKU synkey
+  # order.data <- order.data %>% mutate(adj.qty = ifelse(lead(return) == TRUE & lead(syn.key) == syn.key, Quantity + lead(Quantity), Quantity))
+
+  
+  ## Nice test customer: zz <- order.data %>% filter(CustomerID == 12471)
+  
+  returns.left <- length(which(order.data$return == TRUE))
+  order.data$adj.qty <- order.data$Quantity
+  order.data <- order.data %>% arrange(syn.key, InvoiceDate)
+  
+  while (returns.left > 0 ) {
+    # Subtract quantity from prior customer order
+    order.data <- order.data %>% mutate(prior.qty = ifelse(syn.key == lag(syn.key), lag(Quantity), 0))
+    order.data$prior.qty <- replace(order.data$prior.qty, is.na(order.data$prior.qty), 0)
+    zz.1 <- order.data %>% filter(CustomerID == 12471)
+    
+    # When current is order and leading, matching synkey is a return, subtract from the current order
+    order.data <- order.data %>% mutate(adj.qty = ifelse(lead(syn.key) == syn.key & return == FALSE & lead(return) == TRUE, adj.qty + lead(adj.qty), adj.qty))
+    zz.2 <- order.data %>% filter(CustomerID == 12471)
+    
+    # When current synkey is a return and prior is an order, set adj.qty = 0 (flag for deletion) 
+    order.data <- order.data %>% mutate(adj.qty = ifelse(lag(syn.key) == syn.key & return == TRUE & lag(return) == FALSE, 0, adj.qty))
+    zz.3 <- order.data %>% filter(CustomerID == 12471)
+    
+    # Remove RETURNS with no leading ORDER
+    order.data <- order.data %>% mutate(adj.qty = ifelse(return == TRUE & prior.qty == 0, 0, adj.qty))
+    
+    # Remove rows where adj.qty = 0
+    order.data <- order.data %>% filter(adj.qty != 0)
+    zz.4 <- order.data %>% filter(CustomerID == 12471)
+    
+    # Set RETURN on all negative quantities to TRUE
+    order.data <- order.data %>% mutate(return = ifelse(adj.qty < 0, TRUE, FALSE))
+    zz.5 <- order.data %>% filter(CustomerID == 12471)
+    
+    
+    # Are there any returns left?
+    returns.left <- length(which(order.data$return == TRUE))
+    print(returns.left)
+  }
+  
+  return(order.data)
   
 }
 
 
-
-
-
-
-
-#### Popularity and seasonality of SKUs
-# Seasons: monthly, weekly, daily
-
-## Create additional date-based columns
-
-# Day of week
-retail.data$day.of.week <- wday(retail.data$InvoiceDate, label = TRUE)
-
-# Day of month
-retail.data$day.of.month <- mday(retail.data$InvoiceDate)
-
-# Month of year
-retail.data$month <- month(retail.data$InvoiceDate, label = TRUE)
-retail.data$year <- year(retail.data$InvoiceDate)
-
-
-
-
-## Group_bys
+# Summarization function for aggregate statistics
 f_basic_summary <- function(grouped.data) {
   
   current.summary <- summarise(grouped.data,
                                orders = n_distinct(InvoiceNo),
                                customers = n_distinct(CustomerID),
                                volume = sum(Quantity),
-                               contribution = sum(Quantity * UnitPrice))
+                               total.contribution = sum(Quantity * UnitPrice),
+                               mean.contribution = mean(UnitPrice))
   
   return(current.summary)
-  
 }
 
-# SKU popularity
+
+
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Cleansing ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Remove orders from customers not registered with the site
+retail.data <- retail.data %>% filter(!is.na(CustomerID))
+
+# Remove abnormal SKUs
+bad.SKU.index <- which(retail.data$StockCode %in% c("BANK CHARGES", "POST", "M", "PADS", "DOT", "CRUK", "D", "C2"))
+retail.data <- retail.data[-bad.SKU.index,]
+
+# Clean up returns
+retail.data <- f_process_returns(retail.data)
+
+# Drop extinct levels
+retail.data <- droplevels(retail.data)
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Transformations
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+## Run normality tests:
+qqnorm(retail.data$Quantity)
+qqline(retail.data$Quantity)
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Popularity and seasonality of SKUs
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## SKU popularity
 SKU.summary <- f_basic_summary(group_by(retail.data, StockCode))
+pairs(SKU.summary)
+# Insights:
+# 1) There appears to be grouping of SKUs by item type, as seen by SKU-mean.contribution relationship
+# 2) # of orders and # of customers by SKU is strongly co-linear, as expected
+# 3) # of orders against volume by SKU shows a range. 
+# 4) Cheaper items make the most revenue and volume in total as seen in mean.contribution - total.contribution chart
 
-# Trends by day of week
+## Trends by day of week
+retail.data$day.of.week <- wday(retail.data$InvoiceDate, label = TRUE)
 daily.summary <- f_basic_summary(group_by(retail.data, day.of.week))
+pairs(daily.summary)
+# Insights:
+# 1) The shop is closed on Saturday (1 = Sunday, 6 = Friday)
+# 2) Order activity is lowest on Sunday, ramping up to a peak on Thursday and dropping off on Friday
+# 3) # of orders, customers, volume, and total contribution are all co-linear on the same pattern
+# 4) Sunday is the most frugal day. During the week, the mean cost of goods is inversely proportional to sales activity.
+#    As order intake increases, mean prices decrease. We see maxima on Monday and Friday. Perhaps reflecting the dynamics
+#    of sales to resellers during midweek and consumers on Monday/Friday?
 
-# Trends by day of month
+## Trends by day of month
+retail.data$day.of.month <- mday(retail.data$InvoiceDate)
 day.of.month.summary <- f_basic_summary(group_by(retail.data, day.of.month))
+pairs(day.of.month.summary)
+# Insights:
+# 1) Order intake peaks at beginning of month and drops off over the course of the month
 
-# Trends by month
+## Trends by month
+retail.data$month <- month(retail.data$InvoiceDate, label = TRUE)
+retail.data$year <- year(retail.data$InvoiceDate)
 monthly.summary <- f_basic_summary(group_by(retail.data, month))
 monthly.SKU.summary <- f_basic_summary(group_by(retail.data, StockCode, month))  # Are some items summer items? Holiday items?
+pairs(monthly.summary)
+# Insights:
+# 1) Order volume is lowest in Jan/Feb, then steadily ramps up to a peak in November, slight drop in December
+# 2) Mean price peaks in the summer months, and reaches it's lowest point in the highest volume month of November. 
 
-# Trends by customer
+## Trends by customer
 customer.summary <- f_basic_summary(group_by(retail.data, CustomerID))
 customer.SKU.summary <- f_basic_summary(group_by(retail.data, CustomerID, StockCode))
+pairs(customer.summary)
+qplot(mean.contribution, total.contribution, data = customer.summary)
+# Insights:
+# 1) Broad spectrum of customer types, generally spreading out in 2 directions; low volume/high cost & high volume/low cost
 
-# Regional trends
+## Regional trends
 region.summary <- f_basic_summary(group_by(retail.data, Country))
 region.SKU.summary <- f_basic_summary(group_by(retail.data, Country, StockCode))  # Are local affinities apparent?
+pairs(region.summary)
+# Insights:
+# 1) The UK is, by far the largest customer
+# 2) Singapore stands out as an outlier for high mean contribution. Interestingly, there is only a single customer that has
+#    placed 10 orders for >5,000 items with a mean contribution of >$100 per item.
 
 
 
 
 
 
-#### Customer segmentation & comparison of purchasing behavior between segments
-
-## Customer segmentation
-# Generate list of StockCodes purchased by more than one customer and with total sales > 1
-SKU.list <- SKU.summary %>% filter(customers > 1, volume > 1) %>% select(StockCode)
-
-# Filter down the SKU-Customer summary to only include SKUs listed above
-customer.orders <- customer.SKU.summary %>%
-  inner_join(SKU.list, by = "StockCode") %>%
-  filter(volume > 0) %>%
-  select(CustomerID, StockCode) %>%
-  mutate(Count = 1)
-
-# Translate the list-style table into a sparse matrix with rows as customers and columns as SKUs
-sparse.customer.orders <- dcast(customer.orders, CustomerID ~ StockCode)
-rownames(sparse.customer.orders) <- sparse.customer.orders$CustomerID  # Set customer names to the rowname
-sparse.customer.orders$CustomerID <- NULL  # Remove the customer name column
-sparse.customer.orders[is.na(sparse.customer.orders)] <- 0  # Replace NA with 0
-
-library(NMF)
-
-fit<-nmf(sparse.customer.orders[1:100, ], 5, "lee", nrun=10)
-basismap(fit)
-coefmap(fit)
-
-# code for sorting and printing
-# the two factor matrices
-h<-coef(fit)
-library(psych)
-fa.sort(t(round(h,3)))
-w<-basis(fit)
-wp<-w/apply(w,1,sum)
-fa.sort(round(wp,3))
-
-# hard clustering
-type<-max.col(w)
-table(type)
-t(aggregate(Scotch, by=list(type), FUN=mean))
 
 
 
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Choropleth plotting
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+library(leaflet)
+library(RColorBrewer)
+library(maps)
+library(rgdal)
+
+# Load country data to SPDF
+countries <- readOGR("json/countries.geojson", "OGRGeoJSON")
+# Add statistics to countries
+region.summary$Country <- as.character(region.summary$Country)
+region.summary$Country[region.summary$Country == "EIRE"] <- "Ireland"
+region.summary$Country[region.summary$Country == "RSA"] <- "South Africa"
+region.summary$Country[region.summary$Country == "USA"] <- "United States of America"
+
+countries.data <- countries
+countries.data@data <- countries.data@data %>% left_join(region.summary, by = c("ADMIN" = "Country"))
+countries.data@data$log.customers <- log(countries.data@data$customers)
+countries.data@data <- replace(countries.data@data, is.na(countries.data@data), 0)
+
+options(viewer = NULL)
+
+# Choropleth generating function
+f_generate_choropleth <- function(country.data, domain) {
+  ## Description: Generates a choropleth map
+  ## Arguments:
+  ## country.data: map data object (e.g. countries.data)
+  ## domain: the column of map object containing coloring data (e.g. countries.data$customers)
+  
+  pal <- colorNumeric(
+    palette = "Blues",
+    domain = domain
+  )
+  
+  m <- leaflet(country.data) %>%
+    addPolygons(stroke = FALSE, smoothFactor = 0.2, fillOpacity = 1,
+                color = ~pal(domain))
+  
+  return(m)
+}
 
 
-## Customer lifetime value analysis
+
+
+
