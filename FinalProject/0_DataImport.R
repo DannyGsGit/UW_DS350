@@ -214,8 +214,9 @@ f_norm_test(log(retail.data$adj.qty))
 
 ## Generate alternate view where SKUs are collapsed into a single ORDER row
 order.summary <- f_basic_summary(group_by(retail.data, InvoiceNo, CustomerID, InvoiceDate))
-
-
+qplot(order.summary$InvoiceDate, order.summary$total.contribution)
+qplot(order.summary$volume, order.summary$total.contribution)
+########################################## Continue exploring this thread- can we segment customers here? E.g. Add order frequency, size...
 
 
 ## SKU popularity
