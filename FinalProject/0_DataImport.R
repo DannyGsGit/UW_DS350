@@ -159,6 +159,7 @@ retail.data <- retail.data %>% filter(ext.cost != 0)
 # Extract interesting date characteristics
 retail.data$day.of.week <- wday(retail.data$InvoiceDate, label = TRUE)
 retail.data$month <- month(retail.data$InvoiceDate, label = TRUE)
+retail.data$week <- week(retail.data$InvoiceDate)
 retail.data$year <- year(retail.data$InvoiceDate)
 retail.data$day.of.month <- mday(retail.data$InvoiceDate)
 
@@ -187,19 +188,6 @@ f_norm_test(log(retail.data$adj.qty))
 
 ## All three numeric columns should be transformed for improved normality
 
-
-
-
-
-
-
-
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#### General plots
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-# quantity- mean.contribution
 
 
 
@@ -393,58 +381,98 @@ f_multi_hist <- function(data, simplify = FALSE, nbins = 80, p = 0.05,
 }
 
 
-weekday.volume.bootstrap <- f_multilevel_one.boot(retail.data, "day.of.week", "adj.qty")
+weekday.volume.bootstrap <- f_multilevel_one.boot(retail.data, "day.of.week", "adj.qty", R.count = 500)
 
 f_multi_hist(weekday.volume.bootstrap, simplify = FALSE, plot.title = "Histogram of volume by weekday", y.label = "Volume", x.label = "Weekday")
 
 
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### SKU seasonality ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Pick a SKU
+sku <- 22423
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#### Choropleth plotting
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+sku.data <- retail.data %>% filter(StockCode == sku)
 
-library(leaflet)
-library(RColorBrewer)
-library(maps)
-library(rgdal)
+sku.monthly <- f_basic_summary(group_by(sku.data, month))
+sku.weekly <- f_basic_summary(group_by(sku.data, week))
 
-# Load country data to SPDF
-countries <- readOGR("json/countries.geojson", "OGRGeoJSON")
-# Add statistics to countries
-region.summary$Country <- as.character(region.summary$Country)
-region.summary$Country[region.summary$Country == "EIRE"] <- "Ireland"
-region.summary$Country[region.summary$Country == "RSA"] <- "South Africa"
-region.summary$Country[region.summary$Country == "USA"] <- "United States of America"
+qplot(sku.monthly$month, sku.monthly$volume, geom = c("line", "point"))
+qplot(sku.weekly$week, sku.weekly$volume, geom = c("line", "point"))
 
-countries.data <- countries
-countries.data@data <- countries.data@data %>% left_join(region.summary, by = c("ADMIN" = "Country"))
-countries.data@data$log.customers <- log(countries.data@data$customers)
-countries.data@data <- replace(countries.data@data, is.na(countries.data@data), 0)
-
-options(viewer = NULL)
-
-# Choropleth generating function
-f_generate_choropleth <- function(country.data, domain) {
-  ## Description: Generates a choropleth map
-  ## Arguments:
-  ## country.data: map data object (e.g. countries.data)
-  ## domain: the column of map object containing coloring data (e.g. countries.data$customers)
-  
-  pal <- colorNumeric(
-    palette = "Blues",
-    domain = domain
-  )
-  
-  m <- leaflet(country.data) %>%
-    addPolygons(stroke = FALSE, smoothFactor = 0.2, fillOpacity = 1,
-                color = ~pal(domain))
-  
-  return(m)
-}
+# Bootstrap weekly/monthly orders
 
 
 
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### What do we want to do? ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Use clean order data for customer segmentation
+# What does a typical order look like?
+# Recomendation system?
+# Seasonality forecasts? For SKUs?
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# #### Choropleth plotting
+# #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# 
+# library(leaflet)
+# library(RColorBrewer)
+# library(maps)
+# library(rgdal)
+# 
+# # Load country data to SPDF
+# countries <- readOGR("json/countries.geojson", "OGRGeoJSON")
+# # Add statistics to countries
+# region.summary$Country <- as.character(region.summary$Country)
+# region.summary$Country[region.summary$Country == "EIRE"] <- "Ireland"
+# region.summary$Country[region.summary$Country == "RSA"] <- "South Africa"
+# region.summary$Country[region.summary$Country == "USA"] <- "United States of America"
+# 
+# countries.data <- countries
+# countries.data@data <- countries.data@data %>% left_join(region.summary, by = c("ADMIN" = "Country"))
+# countries.data@data$log.customers <- log(countries.data@data$customers)
+# countries.data@data <- replace(countries.data@data, is.na(countries.data@data), 0)
+# 
+# options(viewer = NULL)
+# 
+# # Choropleth generating function
+# f_generate_choropleth <- function(country.data, domain) {
+#   ## Description: Generates a choropleth map
+#   ## Arguments:
+#   ## country.data: map data object (e.g. countries.data)
+#   ## domain: the column of map object containing coloring data (e.g. countries.data$customers)
+#   
+#   pal <- colorNumeric(
+#     palette = "Blues",
+#     domain = domain
+#   )
+#   
+#   m <- leaflet(country.data) %>%
+#     addPolygons(stroke = FALSE, smoothFactor = 0.2, fillOpacity = 1,
+#                 color = ~pal(domain))
+#   
+#   return(m)
+# }
+# 
+# 
+# 
 
 
