@@ -202,14 +202,14 @@ f_norm_test(log(retail.data$adj.qty))
 
 ## Generate alternate view where SKUs are collapsed into a single ORDER row
 order.summary <- f_basic_summary(group_by(retail.data, InvoiceNo, CustomerID, InvoiceDate))
-qplot(order.summary$InvoiceDate, order.summary$total.contribution)
-qplot(order.summary$volume, order.summary$total.contribution)
+# qplot(order.summary$InvoiceDate, order.summary$total.contribution)
+# qplot(order.summary$volume, order.summary$total.contribution)
 ########################################## Continue exploring this thread- can we segment customers here? E.g. Add order frequency, size...
 
 
 ## SKU popularity
 SKU.summary <- f_basic_summary(group_by(retail.data, StockCode))
-pairs(SKU.summary)
+# pairs(SKU.summary)
 # Insights:
 # 1) There appears to be grouping of SKUs by item type, as seen by SKU-mean.contribution relationship
 # 2) # of orders and # of customers by SKU is strongly co-linear, as expected
@@ -219,7 +219,7 @@ pairs(SKU.summary)
 ## Trends by day of week
 
 daily.summary <- f_basic_summary(group_by(retail.data, day.of.week))
-pairs(daily.summary)
+# pairs(daily.summary)
 # Insights:
 # 1) The shop is closed on Saturday (1 = Sunday, 6 = Friday)
 # 2) Order activity is lowest on Sunday, ramping up to a peak on Thursday and dropping off on Friday
@@ -231,7 +231,7 @@ pairs(daily.summary)
 ## Trends by day of month
 
 day.of.month.summary <- f_basic_summary(group_by(retail.data, day.of.month))
-pairs(day.of.month.summary)
+# pairs(day.of.month.summary)
 # Insights:
 # 1) Order intake peaks at beginning of month and drops off over the course of the month
 
@@ -239,7 +239,7 @@ pairs(day.of.month.summary)
 
 monthly.summary <- f_basic_summary(group_by(retail.data, month))
 monthly.SKU.summary <- f_basic_summary(group_by(retail.data, StockCode, month))  # Are some items summer items? Holiday items?
-pairs(monthly.summary)
+# pairs(monthly.summary)
 # Insights:
 # 1) Order volume is lowest in Jan/Feb, then steadily ramps up to a peak in November, slight drop in December
 # 2) Mean price peaks in the summer months, and reaches it's lowest point in the highest volume month of November. 
@@ -247,15 +247,15 @@ pairs(monthly.summary)
 ## Trends by customer
 customer.summary <- f_basic_summary(group_by(retail.data, CustomerID))
 customer.SKU.summary <- f_basic_summary(group_by(retail.data, CustomerID, StockCode))
-pairs(customer.summary)
-qplot(mean.contribution, total.contribution, data = customer.summary)
+# pairs(customer.summary)
+# qplot(mean.contribution, total.contribution, data = customer.summary)
 # Insights:
 # 1) Broad spectrum of customer types, generally spreading out in 2 directions; low volume/high cost & high volume/low cost
 
 ## Regional trends
 region.summary <- f_basic_summary(group_by(retail.data, Country))
 region.SKU.summary <- f_basic_summary(group_by(retail.data, Country, StockCode))  # Are local affinities apparent?
-pairs(region.summary)
+# pairs(region.summary)
 # Insights:
 # 1) The UK is, by far the largest customer
 # 2) Singapore stands out as an outlier for high mean contribution. Interestingly, there is only a single customer that has
@@ -392,7 +392,7 @@ f_multi_hist(weekday.volume.bootstrap, simplify = FALSE, plot.title = "Histogram
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 # Pick a SKU
-sku <- 22423
+sku <- "84879"
 
 sku.data <- retail.data %>% filter(StockCode == sku)
 
@@ -406,6 +406,48 @@ qplot(sku.weekly$week, sku.weekly$volume, geom = c("line", "point"))
 
 
 
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### Customer segments ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+today <- mdy_hm("12-10-2011 12:00")
+
+# Explore frequency and recency of customer activity
+customer.metrics <- retail.data %>%
+  group_by(CustomerID) %>%
+  summarise(frequency = n(),
+            recency = as.numeric(today - max(InvoiceDate)),
+            log.frequency = log(frequency),
+            log.recency = log(recency),
+            last.order = max(as.character(InvoiceNo)))
+
+hist(customer.metrics$log.recency)
+hist(customer.metrics$log.frequency)
+
+# Define breaks for frequency and recency (~6 each)
+customer.metrics$recency.bin <- ntile(customer.metrics$log.recency, 6)
+customer.metrics$frequency.bin <- ntile(customer.metrics$log.frequency, 6)
+
+# Group by frequency and recency
+lifecycle.grid <- customer.metrics %>%
+  group_by(recency.bin, frequency.bin) %>%
+  summarise(quantity = n()) %>%
+  mutate(CustomerID = 'CustomerID') %>%
+  ungroup()
+
+lifecycle.grid <- dcast(lifecycle.grid, frequency.bin ~ recency.bin,
+                        value.var = 'quantity', fun.aggregate = sum)
+
+
+# Plot the results
+ggplot(lifecycle.grid, aes(x = CustomerID, y = quantity, fill = quantity)) +
+  geom_bar(stat = 'identity') +
+  facet_grid(frequency.bin ~ recency.bin)
+
+# Add top SKUs to the plot to see how items are distributed
+
+# Use quadrants to segment customers
+
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### What do we want to do? ####
@@ -415,6 +457,7 @@ qplot(sku.weekly$week, sku.weekly$volume, geom = c("line", "point"))
 # What does a typical order look like?
 # Recomendation system?
 # Seasonality forecasts? For SKUs?
+# BSTS
 
 
 
