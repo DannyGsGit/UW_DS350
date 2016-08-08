@@ -1,0 +1,449 @@
+---
+title: 'Assignment 6: Singular Value Decomposition'
+author: "Danny Godbout"
+date: "August 8, 2016"
+output: html_document
+---
+
+
+```{r global_options, include = FALSE}
+# Set global knitr options
+
+knitr::opts_chunk$set(comment = "", echo = FALSE, warning = FALSE, message = FALSE)
+
+
+```
+
+
+``` {r}
+library(dplyr)
+library(ggplot2)
+library(car)
+library(MASS)
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+####  Import and set typing + basic calculated columns ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Import
+auto.data <- read.csv('Automobile price data _Raw_.csv', stringsAsFactors = FALSE)
+
+# Set types on factor columns
+factor.cols <- c("make", "fuel.type", "aspiration", "num.of.doors",
+                 "body.style", "drive.wheels", "engine.location",
+                 "engine.type", "num.of.cylinders", "fuel.system")
+auto.data[, factor.cols] <- lapply(auto.data[factor.cols], as.factor)
+
+# Set types on numeric columns
+numeric.cols <- c("wheel.base", "length", "width", "height",
+                  "curb.weight", "engine.size", "bore", "stroke",
+                  "compression.ratio", "horsepower", "peak.rpm",
+                  "city.mpg", "highway.mpg", "price")
+auto.data[, numeric.cols] <- lapply(auto.data[numeric.cols], as.numeric)
+
+# Calculate log-price column
+auto.data <- auto.data %>% mutate(log.price = log(price))
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+####  Set model features ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Select modeling columns
+model.features <- c("make", "fuel.type", "aspiration", "body.style",
+                    "drive.wheels", "length", "curb.weight", "engine.type",
+                    "num.of.cylinders", "engine.size", "city.mpg", "log.price")
+
+model.data <- auto.data[, model.features]
+
+
+## Remove NAs
+model.data <- na.exclude(model.data)
+
+
+## Standardize numeric columns
+numeric.features <- c("length", "curb.weight", "engine.size", "city.mpg")
+
+model.data[, numeric.features] <- scale(model.data[, numeric.features])
+
+```
+
+
+##  {.tabset}
+
+### SVD Model
+
+This SVD model predicts log-price on make, fuel-type, aspiration, body style, drive wheels, length, curb weight, engine type, cylinder count, engine size and city mpg. When factors are broken out into individual levels, the **dimensionality of the model increases from 12 to 46.**
+
+```{r}
+#~~~~~~~~~~~~~~~~~~~~
+#### Perform SVD ####
+#~~~~~~~~~~~~~~~~~~~~
+
+## Set formula to predict log price on all features. Remove intercept with 0:
+model.formula <- log.price ~ 0 + .
+
+
+## Build the model matrix from formula
+auto.model.matrix <- model.matrix(model.formula, data = model.data)
+
+## Perform SVD on model matrix
+auto.svd <- svd(auto.model.matrix)
+
+## Save the d-matrix
+d <- diag(auto.svd$d)
+
+## Plot singular values
+f_singular_value_plot <- function(values) {
+  ## Plots singular values of a matrix diagonal.
+  ## Args:
+  ##  values- matrix of values
+  
+  # Get list of diagonal values and format for plotting
+  val_list <- data.frame("value" = diag(values), "index" = 1:length(diag(values)))
+  
+  # Build plot
+  sv_plot <- ggplot(val_list, aes(index, value)) +
+    geom_point(size = 2.5) +
+    ggtitle("Singular Value Plot")
+  print(sv_plot)
+  
+}
+f_singular_value_plot(d)
+```
+
+Generating the SVD modeling coefficients yields the following SV plot:
+
+```{r}
+## Calulate model coefficients
+f_svd_coefficients <- function(df, svd, remove.features = NULL) {
+  ## Function computes the SVD model coefficients
+  ## Args:
+  ##  df- data set to model on
+  ##  svd- an svd object
+  ##  remove.features- list of features to remove
+  
+  ## Compute the inverse the singular values
+  dInv = diag(1/svd$d) 
+  
+  ## If features have been chosen for removal, set to 0
+  if(!is.null(remove.features)) {
+    dInv[remove.features, remove.features] = 0.0
+    # print(diag(dInv))
+    
+  }
+  f_singular_value_plot(dInv)
+  
+  ## Compute the pseudo inverse
+  pInv = svd$v %*% t(dInv) %*% t(svd$u)
+  
+  ## Compute the model coeficients
+  b = pInv %*% as.matrix(df$log.price)
+  
+  return(b)
+}
+b <- f_svd_coefficients(model.data, auto.svd)
+```
+
+Re-calculating the modeling coefficients with the last 3 coefficients set to zero yields the following result. In the end, the **model will use 43 features.**
+
+``` {r}
+## Re-calculate model coefficients, with features 44-46 removed
+b.elim <- f_svd_coefficients(model.data, auto.svd, remove.features = c(44, 45, 46))
+```
+
+Reviewing the performance of each model, we see that the **RMSE improves by 23% after removing the three features.** We also see that the distribution of the residuals for the truncated model is more normal per the QQ plot.
+
+``` {r}
+## Evaluate model performance with and without dropped features
+f_svd_predict <- function(df, df.matrix, model) {
+  # Prediction
+  df$pred <- as.matrix(df.matrix) %*% model
+  
+  # Residuals
+  df$residual <- df$pred - df$log.price
+  
+  # Square of residuals
+  df$sq.res <- df$residual ^ 2
+  
+  return(df)
+}
+
+b.prediction <- f_svd_predict(model.data, auto.model.matrix, b)
+b.elim.prediction <- f_svd_predict(model.data, auto.model.matrix, b.elim)
+
+## RMSE
+f_rmse <- function(sq.residuals) {
+  rmse <- sqrt(mean(sq.residuals))
+  return(rmse)
+}
+
+rmse.b <- f_rmse(b.prediction$sq.res)
+print("RMSE of model with 46 features:")
+rmse.b
+rmse.b.elim <- f_rmse(b.elim.prediction$sq.res)
+print("RMSE of model with 43 features:")
+rmse.b.elim
+```
+
+Diagnostic plot of full model:
+
+``` {r}
+## Print diagnostic plots
+plot.diagnostic = function(df){
+
+    ## Histogram of residuals
+  hist_residuals <- ggplot(df, aes(residual)) +
+    geom_histogram(bins = 30) +
+    ggtitle("Histogram of Residuals")
+  print(hist_residuals)
+  
+  ## QQ Plot
+  qqPlot(df$residual, main = "QQ Plot of Residuals")
+  
+  ## Residuals-Predicted
+  residual_predicted_plot <- ggplot(df, aes(pred, residual)) +
+    geom_point() +
+    labs(title = "Residuals vs Predicted Values", x = "Predicted", y = "Actual")
+  print(residual_predicted_plot)
+  
+}
+
+plot.diagnostic(b.prediction)
+```
+
+Diagnostic plots of model with 43 features:
+
+```{r}
+plot.diagnostic(b.elim.prediction)
+```
+
+
+### Stepwise Regression
+
+Performing a stepwise regression on the auto price data, and using the same model features as the SVD, we see that the stepwise algorithm similarly drops features to optimize the model. Specifically, the stepwise regression drops fuel type, length, and number of cylinders: 
+``` {r}
+## Apply step wise regression to the new model
+lm.auto <- lm(model.formula, data = model.data)
+auto.stepwise <- stepAIC(lm.auto, direction = 'both', trace = FALSE)
+
+auto.stepwise$anova
+```
+
+Comparing the RMSE of the stepwise regression to the optimal SVD model (RMSE = `r rmse.b.elim`), we see a similar result:
+
+``` {r}
+print("RMSE:")
+summary(auto.stepwise)$sigma
+
+plot(auto.stepwise)
+```
+
+
+### Source Code
+
+``` {r eval = FALSE, echo = TRUE}
+
+library(dplyr)
+library(ggplot2)
+library(car)
+library(MASS)
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+####  Import and set typing + basic calculated columns ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Import
+auto.data <- read.csv('Automobile price data _Raw_.csv', stringsAsFactors = FALSE)
+
+# Set types on factor columns
+factor.cols <- c("make", "fuel.type", "aspiration", "num.of.doors",
+                 "body.style", "drive.wheels", "engine.location",
+                 "engine.type", "num.of.cylinders", "fuel.system")
+auto.data[, factor.cols] <- lapply(auto.data[factor.cols], as.factor)
+
+# Set types on numeric columns
+numeric.cols <- c("wheel.base", "length", "width", "height",
+                  "curb.weight", "engine.size", "bore", "stroke",
+                  "compression.ratio", "horsepower", "peak.rpm",
+                  "city.mpg", "highway.mpg", "price")
+auto.data[, numeric.cols] <- lapply(auto.data[numeric.cols], as.numeric)
+
+# Calculate log-price column
+auto.data <- auto.data %>% mutate(log.price = log(price))
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+####  Set model features ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Select modeling columns
+model.features <- c("make", "fuel.type", "aspiration", "body.style",
+                    "drive.wheels", "length", "curb.weight", "engine.type",
+                    "num.of.cylinders", "engine.size", "city.mpg", "log.price")
+
+model.data <- auto.data[, model.features]
+
+
+## Remove NAs
+model.data <- na.exclude(model.data)
+
+
+## Standardize numeric columns
+numeric.features <- c("length", "curb.weight", "engine.size", "city.mpg")
+
+model.data[, numeric.features] <- scale(model.data[, numeric.features])
+
+
+#~~~~~~~~~~~~~~~~~~~~
+#### Perform SVD ####
+#~~~~~~~~~~~~~~~~~~~~
+
+## Set formula to predict log price on all features. Remove intercept with 0:
+model.formula <- log.price ~ 0 + .
+
+
+## Build the model matrix from formula
+auto.model.matrix <- model.matrix(model.formula, data = model.data)
+
+## Perform SVD on model matrix
+auto.svd <- svd(auto.model.matrix)
+
+## Save the d-matrix
+d <- diag(auto.svd$d)
+
+## Plot singular values
+f_singular_value_plot <- function(values) {
+  ## Plots singular values of a matrix diagonal.
+  ## Args:
+  ##  values- matrix of values
+  
+  # Get list of diagonal values and format for plotting
+  val_list <- data.frame("value" = diag(values), "index" = 1:length(diag(values)))
+  
+  # Build plot
+  sv_plot <- ggplot(val_list, aes(index, value)) +
+    geom_point(size = 2.5) +
+    ggtitle("Singular Value Plot")
+  print(sv_plot)
+  
+}
+f_singular_value_plot(d)
+
+
+
+## Calulate model coefficients
+f_svd_coefficients <- function(df, svd, remove.features = NULL) {
+  ## Function computes the SVD model coefficients
+  ## Args:
+  ##  df- data set to model on
+  ##  svd- an svd object
+  ##  remove.features- list of features to remove
+  
+  ## Compute the inverse the singular values
+  dInv = diag(1/svd$d) 
+  print(dInv)
+  
+  ## If features have been chosen for removal, set to 0
+  if(!is.null(remove.features)) {
+    dInv[remove.features, remove.features] = 0.0
+    print(dInv)
+  }
+  
+  f_singular_value_plot(dInv)
+  
+  ## Compute the pseudo inverse
+  pInv = svd$v %*% t(dInv) %*% t(svd$u)
+  
+  ## Compute the model coeficients
+  b = pInv %*% as.matrix(df$log.price)
+  
+  return(b)
+}
+b <- f_svd_coefficients(model.data, auto.svd)
+
+## Re-calculate model coefficients, with features 44-46 removed
+b.elim <- f_svd_coefficients(model.data, auto.svd, remove.features = c(44, 45, 46))
+
+
+
+
+
+
+
+## Evaluate model performance with and without dropped features
+f_svd_predict <- function(df, df.matrix, model) {
+  # Prediction
+  df$pred <- as.matrix(df.matrix) %*% model
+  
+  # Residuals
+  df$residual <- df$pred - df$log.price
+  
+  # Square of residuals
+  df$sq.res <- df$residual ^ 2
+  
+  return(df)
+}
+
+b.prediction <- f_svd_predict(model.data, auto.model.matrix, b)
+b.elim.prediction <- f_svd_predict(model.data, auto.model.matrix, b.elim)
+
+## RMSE
+f_rmse <- function(sq.residuals) {
+  rmse <- sqrt(mean(sq.residuals))
+  return(rmse)
+}
+
+rmse.b <- f_rmse(b.prediction$sq.res)
+rmse.b
+rmse.b.elim <- f_rmse(b.elim.prediction$sq.res)
+rmse.b.elim
+
+## Print diagnostic plots
+plot.diagnostic = function(df){
+
+    ## Histogram of residuals
+  hist_residuals <- ggplot(df, aes(residual)) +
+    geom_histogram(bins = 30) +
+    ggtitle("Histogram of Residuals")
+  print(hist_residuals)
+  
+  ## QQ Plot
+  qqPlot(df$residual, main = "QQ Plot of Residuals")
+  
+  ## Residuals-Predicted
+  residual_predicted_plot <- ggplot(df, aes(pred, residual)) +
+    geom_point() +
+    labs(title = "Residuals vs Predicted Values", x = "Predicted", y = "Actual")
+  print(residual_predicted_plot)
+  
+}
+
+plot.diagnostic(b.prediction)
+plot.diagnostic(b.elim.prediction)
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+##### Stepwise regression to select features ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Apply step wise regression to the new model
+lm.auto <- lm(model.formula, data = model.data)
+auto.stepwise = stepAIC(lm.auto, direction = 'both')
+
+## Review model
+auto.stepwise$anova
+
+## Print the RMSE value
+summary(auto.stepwise)$sigma
+
+## Diagnostic plots
+plot(auto.stepwise)
+```

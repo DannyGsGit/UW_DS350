@@ -1,29 +1,12 @@
 #### Assignment 6 ####
 # Submitted By: Danny Godbout
 
-# –Perform SVD regression on the auto price data 
-# >Use the following features for your initial model: 
-# make, fuel.type, aspiration, body.style, drive.wheels, 
-# length, curb.weight, engine.type, num.of.cylinders, engine.size, 
-# city.mpg 
-# 
-# >Apply SVD to a model matrix created with model.matrix(), 
-# and report the increase in dimensionality 
-# 
-# >Report how many orthogonal 
-# features you used for you model 
-#
-# >Evaluate your model performance with 
-# plots and by computing RMS error. Hint see my demo code for plots. 
-# 
-# –Use stepwise regression to select features from the aforementioned set 
-# >Compare model performance with full model using summary statistics, plots and ANOVA
 
 
 library(dplyr)
 library(ggplot2)
 library(car)
-
+library(MASS)
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -57,23 +40,6 @@ auto.data <- auto.data %>% mutate(log.price = log(price))
 ####  Set model features ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-model.features <- c("make", "fuel.type", "aspiration", "body.style",
-                    "drive.wheels", "length", "curb.weight", "engine.type",
-                    "num.of.cylinders", "engine.size", "city.mpg", "log.price")
-
-auto.data.ext <- na.exclude(auto.data[, model.features])
-
-model.formula <- log.price ~ 0 + make + fuel.type + aspiration + body.style +
-  drive.wheels + length + curb.weight + engine.type + num.of.cylinders +
-  engine.size + city.mpg
-
-
-# Standardize numeric columns
-numeric.features <- c("length", "curb.weight", "engine.size", "city.mpg")
-
-auto.data.ext[, numeric.features] <- scale(auto.data.ext[, numeric.features])
-
-
 ## Select modeling columns
 model.features <- c("make", "fuel.type", "aspiration", "body.style",
                     "drive.wheels", "length", "curb.weight", "engine.type",
@@ -99,10 +65,7 @@ model.data[, numeric.features] <- scale(model.data[, numeric.features])
 ## Set formula to predict log price on all features. Remove intercept with 0:
 model.formula <- log.price ~ 0 + .
 
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-# Apply SVD to a model matrix created with model.matrix(), 
-# and report the increase in dimensionality
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
 ## Build the model matrix from formula
 auto.model.matrix <- model.matrix(model.formula, data = model.data)
 
@@ -130,18 +93,9 @@ f_singular_value_plot <- function(values) {
 }
 f_singular_value_plot(d)
 
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-# Insight: We have increased the number of dimensions from 12 to 46.
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
 
-
-
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-# How many orthogonal features used for model
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-
-
+## Calulate model coefficients
 f_svd_coefficients <- function(df, svd, remove.features = NULL) {
   ## Function computes the SVD model coefficients
   ## Args:
@@ -152,14 +106,14 @@ f_svd_coefficients <- function(df, svd, remove.features = NULL) {
   ## Compute the inverse the singular values
   dInv = diag(1/svd$d) 
   print(dInv)
-  f_singular_value_plot(dInv)
   
   ## If features have been chosen for removal, set to 0
   if(!is.null(remove.features)) {
     dInv[remove.features, remove.features] = 0.0
     print(dInv)
-    f_singular_value_plot(dInv)
   }
+  
+  f_singular_value_plot(dInv)
   
   ## Compute the pseudo inverse
   pInv = svd$v %*% t(dInv) %*% t(svd$u)
@@ -169,22 +123,16 @@ f_svd_coefficients <- function(df, svd, remove.features = NULL) {
   
   return(b)
 }
-
-## Calculate model coefficients
 b <- f_svd_coefficients(model.data, auto.svd)
 
 ## Re-calculate model coefficients, with features 44-46 removed
 b.elim <- f_svd_coefficients(model.data, auto.svd, remove.features = c(44, 45, 46))
 
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-# Insight: We Drop 3 features from the model
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
 
 
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-# Evaluate performance with plots and RMS error
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+
 
 ## Evaluate model performance with and without dropped features
 f_svd_predict <- function(df, df.matrix, model) {
@@ -200,12 +148,12 @@ f_svd_predict <- function(df, df.matrix, model) {
   return(df)
 }
 
-b.prediction <- f_svd_predict(auto.data.ext, auto.model.matrix, b)
-b.elim.prediction <- f_svd_predict(auto.data.ext, auto.model.matrix, b.elim)
+b.prediction <- f_svd_predict(model.data, auto.model.matrix, b)
+b.elim.prediction <- f_svd_predict(model.data, auto.model.matrix, b.elim)
 
 ## RMSE
-f_rmse <- function(residuals) {
-  rmse <- sqrt(mean(residuals))
+f_rmse <- function(sq.residuals) {
+  rmse <- sqrt(mean(sq.residuals))
   return(rmse)
 }
 
@@ -238,24 +186,23 @@ plot.diagnostic(b.prediction)
 plot.diagnostic(b.elim.prediction)
 
 
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
-# Insight: We see that the performance of the model with dropped
-# variables improves over the initial model by 23%
-#&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ##### Stepwise regression to select features ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Compare model performance with full model using summary statistics, plots and ANOVA
-
-library(MASS)
 ## Apply step wise regression to the new model
-lm.auto <- lm(model.formula, data = auto.data.ext)
+lm.auto <- lm(model.formula, data = model.data)
 auto.stepwise = stepAIC(lm.auto, direction = 'both')
 
+## Review model
 auto.stepwise$anova
-summary(auto.stepwise)
+
+## Print the RMSE value
+summary(auto.stepwise)$sigma
+
+## Diagnostic plots
 plot(auto.stepwise)
 
