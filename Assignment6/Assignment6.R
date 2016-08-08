@@ -21,7 +21,8 @@
 
 
 library(dplyr)
-
+library(ggplot2)
+library(car)
 
 
 
@@ -73,47 +74,61 @@ numeric.features <- c("length", "curb.weight", "engine.size", "city.mpg")
 auto.data.ext[, numeric.features] <- scale(auto.data.ext[, numeric.features])
 
 
+## Select modeling columns
+model.features <- c("make", "fuel.type", "aspiration", "body.style",
+                    "drive.wheels", "length", "curb.weight", "engine.type",
+                    "num.of.cylinders", "engine.size", "city.mpg", "log.price")
+
+model.data <- auto.data[, model.features]
+
+
+## Remove NAs
+model.data <- na.exclude(model.data)
+
+
+## Standardize numeric columns
+numeric.features <- c("length", "curb.weight", "engine.size", "city.mpg")
+
+model.data[, numeric.features] <- scale(model.data[, numeric.features])
+
 
 #~~~~~~~~~~~~~~~~~~~~
 #### Perform SVD ####
 #~~~~~~~~~~~~~~~~~~~~
 
+## Set formula to predict log price on all features. Remove intercept with 0:
+model.formula <- log.price ~ 0 + .
+
 #&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 # Apply SVD to a model matrix created with model.matrix(), 
 # and report the increase in dimensionality
 #&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+## Build the model matrix from formula
+auto.model.matrix <- model.matrix(model.formula, data = model.data)
 
-auto.model.matrix <- model.matrix(model.formula, data = auto.data.ext)
-
+## Perform SVD on model matrix
 auto.svd <- svd(auto.model.matrix)
 
+## Save the d-matrix
 d <- diag(auto.svd$d)
 
-## Plot the singular vectors
-plot.vec = function(u, n = 5){
-  par(mfrow = c(n,1))
-  par(mar=c(1,6,1,2))
-  for(i in 1:n){
-    barplot(u[,i])
-    abline(h = 0, lwd = 2, col = 'blue')
-  }
-  par(mfrow = c(1,1))
+## Plot singular values
+f_singular_value_plot <- function(values) {
+  ## Plots singular values of a matrix diagonal.
+  ## Args:
+  ##  values- matrix of values
+  
+  # Get list of diagonal values and format for plotting
+  val_list <- data.frame("value" = diag(values), "index" = 1:length(diag(values)))
+  
+  # Build plot
+  sv_plot <- ggplot(val_list, aes(index, value)) +
+    geom_point(size = 2.5) +
+    ggtitle("Singular Value Plot")
+  print(sv_plot)
+  
 }
-plot.vec(auto.svd$u)
-plot.vec(t(auto.svd$v))
-
-## Plot the singular values
-plot.sing = function(u){
-  par(mar=c(5,5,5,5))
-  nrows = nrow(u)
-  d = rep(0,nrows)
-  for(i in 1:nrows) d[i] = u[i,i]
-  plot(1:nrows, d, col = 'red',
-       main = ('Singular values'),
-       xlab = 'Singular value order',
-       ylab = 'Singular value')
-}
-plot.sing(d)
+f_singular_value_plot(d)
 
 #&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 # Insight: We have increased the number of dimensions from 12 to 46.
@@ -128,15 +143,22 @@ plot.sing(d)
 
 
 f_svd_coefficients <- function(df, svd, remove.features = NULL) {
+  ## Function computes the SVD model coefficients
+  ## Args:
+  ##  df- data set to model on
+  ##  svd- an svd object
+  ##  remove.features- list of features to remove
+  
   ## Compute the inverse the singular values
   dInv = diag(1/svd$d) 
   print(dInv)
-  plot.sing(dInv)
+  f_singular_value_plot(dInv)
   
+  ## If features have been chosen for removal, set to 0
   if(!is.null(remove.features)) {
     dInv[remove.features, remove.features] = 0.0
     print(dInv)
-    plot.sing(dInv)
+    f_singular_value_plot(dInv)
   }
   
   ## Compute the pseudo inverse
@@ -148,9 +170,11 @@ f_svd_coefficients <- function(df, svd, remove.features = NULL) {
   return(b)
 }
 
-b <- f_svd_coefficients(auto.data.ext, auto.svd)
+## Calculate model coefficients
+b <- f_svd_coefficients(model.data, auto.svd)
 
-b.elim <- f_svd_coefficients(auto.data.ext, auto.svd, remove.features = c(44, 45, 46))
+## Re-calculate model coefficients, with features 44-46 removed
+b.elim <- f_svd_coefficients(model.data, auto.svd, remove.features = c(44, 45, 46))
 
 #&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 # Insight: We Drop 3 features from the model
@@ -162,9 +186,15 @@ b.elim <- f_svd_coefficients(auto.data.ext, auto.svd, remove.features = c(44, 45
 # Evaluate performance with plots and RMS error
 #&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 
+## Evaluate model performance with and without dropped features
 f_svd_predict <- function(df, df.matrix, model) {
+  # Prediction
   df$pred <- as.matrix(df.matrix) %*% model
+  
+  # Residuals
   df$residual <- df$pred - df$log.price
+  
+  # Square of residuals
   df$sq.res <- df$residual ^ 2
   
   return(df)
@@ -173,7 +203,7 @@ f_svd_predict <- function(df, df.matrix, model) {
 b.prediction <- f_svd_predict(auto.data.ext, auto.model.matrix, b)
 b.elim.prediction <- f_svd_predict(auto.data.ext, auto.model.matrix, b.elim)
 
-# RMSE
+## RMSE
 f_rmse <- function(residuals) {
   rmse <- sqrt(mean(residuals))
   return(rmse)
@@ -184,21 +214,24 @@ rmse.b
 rmse.b.elim <- f_rmse(b.elim.prediction$sq.res)
 rmse.b.elim
 
+## Print diagnostic plots
 plot.diagnostic = function(df){
-  ## Plot the histogram and Q-Q of the residuals
-  par(mfrow = c(1,2))
-  hist(df$residual,
-       main = 'Histogram of residuals',
-       xlab = 'Model residuals')
-  qqnorm(df$residual)
-  par(mfrow = c(1,1))
+
+    ## Histogram of residuals
+  hist_residuals <- ggplot(df, aes(residual)) +
+    geom_histogram(bins = 30) +
+    ggtitle("Histogram of Residuals")
+  print(hist_residuals)
   
-  ## Plot the residuals vs the predicted values
-  require(ggplot2)
-  ggplot(df, aes(pred, residual)) +
-    geom_point(size = 2, alpha = 0.3) + 
-    ggtitle('Residuals vs predicted value') + 
-    xlab('Predicted values') + ylab('Residual')
+  ## QQ Plot
+  qqPlot(df$residual, main = "QQ Plot of Residuals")
+  
+  ## Residuals-Predicted
+  residual_predicted_plot <- ggplot(df, aes(pred, residual)) +
+    geom_point() +
+    labs(title = "Residuals vs Predicted Values", x = "Predicted", y = "Actual")
+  print(residual_predicted_plot)
+  
 }
 
 plot.diagnostic(b.prediction)
@@ -213,8 +246,10 @@ plot.diagnostic(b.elim.prediction)
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 ##### Stepwise regression to select features ####
-# Compare model performance with full model using summary statistics, plots and ANOVA
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Compare model performance with full model using summary statistics, plots and ANOVA
+
 library(MASS)
 ## Apply step wise regression to the new model
 lm.auto <- lm(model.formula, data = auto.data.ext)

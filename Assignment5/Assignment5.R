@@ -1,12 +1,6 @@
-# Goal: Construct and evaluate a linear model of automotive price. 
-# 
-# Model price by engine size, curb weight, and city mpg 
-#     –Hint1:  the R model formula is something like: price ~ engine.size+ curb.weight+ city.mpg 
-#     –Hint 2: a transformation of either the label (dependent variable) or the features (independent variables) is required.   
-# Evaluate the significance of the model coefficients from the model summary 
-# Evaluate the performance of the model fit using boththe diagnostic plots and the model summary. 
-# Test normality of residuals (e,g, SW test)
-
+#### Assignment 5 ####
+## Prepared By: Danny Godbout
+## Date: 7/26/2015
 
 library(dplyr)
 library(car)
@@ -61,8 +55,7 @@ qqPlot(auto.data$curb.weight, main = "Curb Weight")
 
 qqPlot(auto.data$city.mpg, main = "City MPG")
 
-## Insights: It appears that we want to transform both price and engine
-#             size.
+
 
 # Check linearity of relationships between features and response (& log-response)
 f_plot_pairs <- function(independent, dependent1, dependent2){
@@ -86,8 +79,7 @@ f_plot_pairs(auto.data$curb.weight, auto.data$price, auto.data$log.price)
 
 f_plot_pairs(auto.data$city.mpg, auto.data$price, auto.data$log.price)
 
-## Insights: Between QQ plots and paired scatter plots, we will indeed
-#             transform price and engine size for linear relationships.
+
 
 
 
@@ -99,6 +91,7 @@ f_plot_pairs(auto.data$city.mpg, auto.data$price, auto.data$log.price)
 
 # Define model formula
 model.formula <- formula(log.price ~ log.engine.size + curb.weight + city.mpg)
+
 # Train linear regression using training data
 price.model <- lm(formula = model.formula, data = auto.data)
 
@@ -119,13 +112,7 @@ summary(price.model)
 summary(auto.data[, c("log.price", "log.engine.size",
                       "curb.weight", "city.mpg")])
 
-## Insights:
-# All coefficients are statistically significant
-# Note that log-price ranges from 8.541-10.72
 
-# While engine size is significant, the coefficient is very small given the scale of the feature (range ~ 1.5)
-# The range of engine size only explains ~ 0.00615 of the price. 
-# By contrast, curb.weight will cover ~1.1 and city.mpg covers ~ 0.63
 
 
 
@@ -150,20 +137,14 @@ r.squared <- 1 - (sum(auto.data$squared.residuals) / sum(auto.data$squared.mean.
 # RMSE
 rmse <- sqrt(mean(auto.data$squared.residuals))
 
-## Insights:
-# We see a pretty good r^2 value of 0.847 with a RMSE of 0.198 on
-# a range of ~2.18 (~9%). 
+
+
+
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### Test normality of residuals ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-# Plot actual vs. predicted values
-qplot(log.price, prediction, data = auto.data)
-qplot(log.price, residuals, data = auto.data)
-qplot(prediction, residuals, data = auto.data)
 
 # Normality tests of residuals
 qqPlot(auto.data$residuals)
@@ -172,11 +153,6 @@ shapiro.test(auto.data$residuals)
 # Review metric plots
 plot(price.model)
 
-## Insights:
-# Initial visual inspection appears to indicate homoscedasticity
-# As we look at the qqplot, it appears that we have some non-normality, as supported by the SW test
-# We see a few points highlighted as outliers in the fitted-residual plot.
-# Looking at the leverage plot, we see that our outliers have high residual and moderate leverage.
 
 
 
@@ -185,12 +161,19 @@ plot(price.model)
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### Refit model without outliers ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Remove outliers from dataset
 outliers <- c(120:122)
 auto.data.no.outliers <- auto.data[-outliers, ]
 
+# Fit model to cleansed data
 price.model.no.outliers <- lm(formula = model.formula, data = auto.data.no.outliers)
 summary(price.model.no.outliers)
-# The re-fitted model shows a mild improvement in R^2
 
+# Review diagnostic plots of new model
 plot(price.model.no.outliers)
-# Plot results show improvement in normality of residuals
+
+# Check normality of residuals
+auto.data.no.outliers$prediction <- predict(price.model.no.outliers)
+auto.data.no.outliers <- auto.data.no.outliers %>% mutate(residuals = log.price - prediction)
+shapiro.test(auto.data.no.outliers$residuals)
