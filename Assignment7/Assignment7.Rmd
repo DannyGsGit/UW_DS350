@@ -1,0 +1,233 @@
+---
+title: 'Assignment 7: Time Series Models'
+author: "Danny Godbout"
+date: "August 8, 2016"
+output: html_document
+---
+
+
+```{r global_options, include = FALSE}
+# Set global knitr options
+
+knitr::opts_chunk$set(comment = "", echo = FALSE, warning = FALSE, message = FALSE)
+
+
+```
+
+
+
+##  {.tabset}
+
+### Analysis of Time Series
+
+This forecast will focus on the ice cream sales data. In this section, we analyze the components of the time series data and conclude that, while the data are non-stationary, a simple diff() transformation provides a stationary series. In addition, a significant seasonal component is present.
+
+
+
+A plot of the raw ice cream sales data shows what ostensibly appears to be a stationary, seasonal time series:
+
+``` {r}
+library(dplyr)
+library(tseries)
+library(forecast)
+
+
+#==================
+#### Load data ####
+#==================
+
+## Import the dataset
+dairy.data <- read.csv('CADairyProduction.csv', header = TRUE)
+
+## Make a time series object with ice cream production
+icecream.ts <- ts(dairy.data$Icecream.Prod, start = 1995, frequency = 12)
+plot(icecream.ts, xlab = "Date", ylab = "Ice Cream Sales", main = "Ice Cream Sales over Time")
+```
+
+We can test for stationarity using an augmented Dickey-Fuller test. The p-value > 0.05 means the series is not stationary.
+
+``` {r}
+## Apply stationarity tests
+icecream.adf <- adf.test(icecream.ts, k = 12)
+icecream.adf
+```
+
+Running the ADF test on the diff of the icecream time series does show stationarity (p<0.05). **We will use diff(icecream) for modeling due to stationarity.**
+
+```{r}
+icecream.diff.adf <- adf.test(diff(icecream.ts), k = 12)
+icecream.diff.adf
+```
+
+Checking for autocorrelation shows out-of-bounds occurences at 0.5, 1.0, 1.5... **indicating seasonality of the model.**
+
+``` {r}
+arma.data <- diff(icecream.ts)
+
+f_acfplots <- function(ts) {
+  print(acf(ts, na.action = na.pass))
+  print(pacf(ts, na.action = na.pass))
+}
+
+f_acfplots(arma.data)
+```
+
+Decomposing the time series, we see the seasonal component.
+
+``` {r}
+# Run seasonality test
+icecream.decompose <- decompose(arma.data)
+plot(icecream.decompose)
+
+```
+
+Furthermore, the random component of the decomposition appears to be randomly distributed white noise per QQ plot:
+
+```{r}
+qqnorm(icecream.decompose$random)
+```
+
+### Model ###
+
+Ultimately, an **ARIMA(2,0,0)(0,1,2)[12] model was settled upon**, resulting in significant coefficients. Note that q and P coefficients were forced to 0 due to high standard errors in earlier iterations of the model.
+
+``` {r}
+## Make the final arma model
+arma.model <- auto.arima(arma.data, 
+                         max.p=3, max.d=3, max.q=0,
+                         max.P=0, max.D=3, max.Q=3,
+                         max.order=5,
+                         start.p=0, start.q=0,
+                         start.P=0, start.Q=0)
+summary(arma.model)
+```
+
+The residuals of the model appear normal in the QQ plot. The ACF plots still show some out-of-bound occurences at approximately 6 and 18 months, perhaps implying another layer of seasonality missing from the model.
+
+```{r}
+
+qqnorm(arma.model$residuals)
+
+## acf plots of arma model
+f_acfplots(arma.model$residuals)
+
+```
+
+
+### Forecast
+
+The forecast appears reasonable, with confidence intervals that are narrow enough that the model is still useful for decision making.
+
+```{r}
+#=====================================
+#### Forecast                     ####
+#=====================================
+
+# Forecast ice cream
+ts.forecast <- forecast(arma.model, h = 12)
+summary(ts.forecast)
+
+## Plot the forecast:
+plot(ts.forecast)
+```
+
+### Source Code
+
+``` {r echo = TRUE, eval = FALSE}
+
+library(dplyr)
+library(tseries)
+library(forecast)
+
+
+#==================
+#### Load data ####
+#==================
+
+## Import the dataset
+dairy.data <- read.csv('CADairyProduction.csv', header = TRUE)
+
+## Make a time series object with ice cream production
+icecream.ts <- ts(dairy.data$Icecream.Prod, start = 1995, frequency = 12)
+plot(icecream.ts, xlab = "Date", ylab = "Ice Cream Sales", main = "Ice Cream Sales over Time")
+
+
+
+
+#=====================================
+#### Stationarity test            ####
+#=====================================
+
+## Apply stationarity tests
+# Stationarity on raw data
+icecream.adf <- adf.test(icecream.ts, k = 12)
+icecream.adf
+# Stationarity on diff of time series
+icecream.diff.adf <- adf.test(diff(icecream.ts), k = 12)
+icecream.diff.adf
+
+
+## Based on above test, we will use the diff of the time series
+## for modeling
+arma.data <- diff(icecream.ts)
+
+## Print the autocorrelation plots of the chosen time series
+f_acfplots <- function(ts) {
+  print(acf(ts, na.action = na.pass))
+  print(pacf(ts, na.action = na.pass))
+}
+f_acfplots(arma.data)
+
+
+
+
+#=====================================
+#### Seasonality  test            ####
+#=====================================
+
+## Extract seasonality from decomposition
+icecream.decompose <- decompose(arma.data)
+plot(icecream.decompose)
+
+## Do the residuals look like white noise?
+qqnorm(icecream.decompose$random)
+
+## Plot acf plots
+f_acfplots(ts(icecream.decompose$random))
+
+
+
+#=====================================
+#### Model                     ####
+#=====================================
+
+## Make the final arma model
+arma.model <- auto.arima(arma.data, 
+                         max.p=3, max.d=3, max.q=0,
+                         max.P=0, max.D=3, max.Q=3,
+                         max.order=5,
+                         start.p=0, start.q=0,
+                         start.P=0, start.Q=0)
+summary(arma.model)
+
+## acf plots of arma model
+f_acfplots(arma.model$residuals)
+## QQ Plot of residuals
+qqnorm(arma.model$residuals)
+
+
+
+
+#=====================================
+#### Forecast                     ####
+#=====================================
+
+# Forecast ice cream
+ts.forecast <- forecast(arma.model, h = 24)
+summary(ts.forecast)
+
+## Plot the forecast:
+plot(ts.forecast)
+
+
+```
