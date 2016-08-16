@@ -18,6 +18,10 @@ knitr::opts_chunk$set(comment = "", echo = FALSE, warning = FALSE, message = FAL
 
 ##  {.tabset}
 
+### Summary
+
+Based on prior knowledge of national rates of texting while driving, and adjusted with local observations of texting rates, we conclude that local drivers trend toward the lower end of the expected range. In a most likely local intersection, we will expect to see between 6 and 20 texters, with a highest likelihood of 11. 
+
 ### Prior Distribution
 
 From prior knowledge of national texting occurences (P = 0.5 @ X = 0.1, P = 0.75 @ X = 0.3), we calculate the beta coefficients for the prior distribution:
