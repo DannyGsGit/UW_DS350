@@ -1,5 +1,3 @@
-
-
 library(LearnBayes)
 
 
@@ -13,6 +11,8 @@ library(LearnBayes)
   
 ## Compute the Beta prior, and report the coefficents
 beta.prior <- beta.select(list(p=0.5, x=0.1), list(p=0.75, x=.3))
+
+## View the coefficients
 beta.prior
 
 
@@ -24,18 +24,17 @@ beta.prior
 ## Plot the prior, likelihood and posterior three times as you update
 ## your belief based on collecting more data
 
-# a. 2 texting out of 20 drivers
-# b. 4 texting out of 20 drivers
-# c. 1 texting out of 20 drivers
-
 par(mfrow = c(3,1))
 
+# a. 2 texting out of 20 drivers
 beta.prior + c(2, 18)
 triplot(beta.prior, c(2, 18))
 
+# b. 4 texting out of 20 drivers
 beta.prior + c(2 + 4, 18 + 16)
 triplot(beta.prior, c(2 + 4, 18 + 16))
 
+# c. 1 texting out of 20 drivers
 beta.prior + c(2 + 4 + 1, 18 + 16 + 19)
 triplot(beta.prior, c(2 + 4 + 1, 18 + 16 + 19))
 
@@ -51,9 +50,12 @@ par(mfrow = c(1,1))
 # – Simulate the final posterior distribution and do the following:
 #   > Plot the posterior with the 90% HDI shown
 
+## Posterior distribution:
 beta.post <- beta.prior + c(2 + 4 + 1, 18 + 16 + 19)
+## Sample from distribution:
 post.sample <- rbeta(10000, beta.post[1], beta.post[2])
 
+## Plot HDI and QQ plot:
 par(mfrow = c(1,2))
 quants = quantile(post.sample, c(0.05, 0.95))
 breaks = seq(min(post.sample), max(post.sample), length.out = 41)
@@ -76,9 +78,16 @@ quants
 # > Of the next hundred drivers what are the number of texting drivers
 # in the 90% HDI?
 
-f_prob_dist <- function(n = 100, beta, title) {
-  s <- 0:n
+f_predicted_probs <- function(beta, n, s) {
   pred.probs <- pbetap(beta, n, s)
+  
+  return(pred.probs)
+}
+
+f_prob_dist <- function(n = 100, beta, title) {
+  # Function plots the distribution of events over n observations.
+  s <- 0:n
+  pred.probs <- f_predicted_probs(beta, n, s)
   discrete.distribution <- discint(cbind(s, pred.probs), 0.90)
   
   plot(s, pred.probs, type="h", 
@@ -88,7 +97,10 @@ f_prob_dist <- function(n = 100, beta, title) {
   abline(v = min(discrete.distribution$set), lty = 3, col = 'red', lwd = 3)
 }
 
-f_prob_dist(beta = beta.post, title = "Posterior distribution of texters")
+
+
+## Plot the posterior distribution over 100 observations
+f_prob_dist(n = 100, beta = beta.post, title = "Posterior distribution of texters")
 
 
 
