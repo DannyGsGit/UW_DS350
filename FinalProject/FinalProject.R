@@ -38,36 +38,11 @@ air.q.data$timestamp <- paste(air.q.data$Date, air.q.data$Time, sep = " ")
 air.q.data$timestamp <-mdy_hms(air.q.data$timestamp)
 
 
-
-
-
 #~~~~~~~~~~~~~~~~~~~~
 #### Exploration ####
 #~~~~~~~~~~~~~~~~~~~~
 
-## Temp & Humidity
-qplot(x = timestamp, y = T, data = air.q.data, geom = c("line", "point"))
-qplot(x = timestamp, y = RH, data = air.q.data, geom = c("line", "point"))
-qplot(x = timestamp, y = AH, data = air.q.data, geom = c("line", "point"))
-
-## CO measures
-qplot(x = timestamp, y = CO.GT., data = air.q.data, geom = c("line", "point"))
-qplot(x = timestamp, y = PT08.S1.CO., data = air.q.data, geom = c("line", "point"))
-
-## NOX measures
-qplot(x = timestamp, y = NOx.GT., data = air.q.data, geom = c("line", "point"))
-qplot(x = timestamp, y = PT08.S3.NOx., data = air.q.data, geom = c("line", "point"))
-
-## NO2 measures
-qplot(x = timestamp, y = NO2.GT., data = air.q.data, geom = c("line", "point"))
-qplot(x = timestamp, y = PT08.S4.NO2., data = air.q.data, geom = c("line", "point"))
-qplot(x = timestamp, y = PT08.S5.O3., data = air.q.data, geom = c("line", "point"))  # O3 aligns to NO2 GT
-
-## C6H6 Measures (Benzene)
-qplot(x = timestamp, y = C6H6.GT., data = air.q.data, geom = c("line", "point"))
-
-
-
+str(air.q.data)
 
 
 
@@ -78,6 +53,7 @@ qplot(x = timestamp, y = C6H6.GT., data = air.q.data, geom = c("line", "point"))
 # 2) Forecast polution levels
 # 3) Bootstrap differences in day/night, days, months
 # 4) How does benzene correlate to pollutants?
+
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -135,27 +111,37 @@ f_plot_prediction_ci <- function(data, feature, target) {
   lines(data[, substitute(feature)], data$upr, col = "red", lwd = 2)
 }
 
+f_time_labels <- function(data) {
+  data$time <- hour(data$timestamp)
+  data$wday <- wday(data$timestamp)
+  data$day <- day(data$timestamp)
+  data$week <- week(data$timestamp)
+  data$month <- month(data$timestamp)
+  data$year <- year(data$timestamp)
+  
+  return(data)
+}
 
+f_remove_outliers <- function(data, outliers) {
+  data <- data[-outliers]
+  return(data)
+}
 
 
 ## CO measures
 CO.data <- f_build_data(air.q.data, GT = "CO.GT.", PT08 = "PT08.S1.CO.")
+
+# Check normality of variables
 f_normplots(CO.data)
-
-# Transformations
 f_shapiro(CO.data$CO.GT.)  # Use log
-CO.data$log.CO.GT. <- log(CO.data$CO.GT.)
-
 f_shapiro(CO.data$PT08.S1.CO.)  # Use log
+
+# Apply transforms
+CO.data$log.CO.GT. <- log(CO.data$CO.GT.)
 CO.data$log.PT08.S1.CO. <- log(CO.data$PT08.S1.CO.)
 
 # Add time labels
-CO.data$time <- hour(CO.data$timestamp)
-CO.data$wday <- wday(CO.data$timestamp)
-CO.data$day <- day(CO.data$timestamp)
-CO.data$week <- week(CO.data$timestamp)
-CO.data$month <- month(CO.data$timestamp)
-CO.data$year <- year(CO.data$timestamp)
+CO.data <- f_time_labels(CO.data)
 
 # Plot relationship between transformed variables
 qplot(log.PT08.S1.CO., log.CO.GT., data = CO.data)
@@ -166,8 +152,7 @@ summary(CO.model)
 plot(CO.model)
 
 # Remove outliers & re-train model
-outliers <- c(2764:2765, 4513:4518, 5703, 5785:5786, 5793, 6800, 6815:6819, 6825, 6837, 7123)
-CO.data.no.outliers <- CO.data[-outliers, ]
+CO.data.no.outliers <- f_remove_outliers(CO.data, c(2764:2765, 4513:4518, 5703, 5785:5786, 5793, 6800, 6815:6819, 6825, 6837, 7123))
 
 CO.model.2 <- lm(log.CO.GT. ~ log.PT08.S1.CO., data = CO.data.no.outliers)
 summary(CO.model.2)
@@ -182,30 +167,20 @@ f_plot_prediction_ci(CO.data, "log.PT08.S1.CO.", "log.CO.GT.")
 
 
 
-
-
-
-
-
-
 ## NOX measures
 NOx.data <- f_build_data(air.q.data, GT = "NOx.GT.", PT08 = "PT08.S3.NOx.")
+
+# Check normality of variables
 f_normplots(NOx.data)
-
-# Transformations
 f_shapiro(NOx.data$NOx.GT.)
-NOx.data$log.NOx.GT. <- log(NOx.data$NOx.GT.)
-
 f_shapiro(NOx.data$PT08.S3.NOx.)
+
+# Apply transforms
+NOx.data$log.NOx.GT. <- log(NOx.data$NOx.GT.)
 NOx.data$log.PT08.S3.NOx. <- log(NOx.data$PT08.S3.NOx.)
 
 # Add time labels
-NOx.data$time <- hour(NOx.data$timestamp)
-NOx.data$wday <- wday(NOx.data$timestamp)
-NOx.data$day <- day(NOx.data$timestamp)
-NOx.data$week <- week(NOx.data$timestamp)
-NOx.data$month <- month(NOx.data$timestamp)
-NOx.data$year <- year(NOx.data$timestamp)
+NOx.data <- f_time_labels(NOx.data)
 
 # Plot relationship between transformed variables
 qplot(log.PT08.S3.NOx., log.NOx.GT., data = NOx.data)
@@ -216,8 +191,7 @@ summary(NOx.model)
 plot(NOx.model)
 
 # Remove outliers & re-train model
-outliers <- c(2897, 5027:5029)
-NOx.data.no.outliers <- NOx.data[-outliers, ]
+NOx.data.no.outliers <- f_remove_outliers(NOx.data, c(2897, 5027:5029))
 
 NOx.model.2 <- lm(log.NOx.GT. ~ log.PT08.S3.NOx., data = NOx.data.no.outliers)
 summary(CO.model.2)
@@ -234,39 +208,24 @@ f_plot_prediction_ci(NOx.data, "log.PT08.S3.NOx.", "log.NOx.GT.")
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### 4) Correlation of benzene to pollutants ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ## Benzene - CO
 C6H6.CO <- f_build_data(air.q.data, GT = "CO.GT.", PT08 = "C6H6.GT.")
+
+# Check normality of variables
 f_normplots(C6H6.CO)
-
-# Transformations
 f_shapiro(C6H6.CO$CO.GT.)
-C6H6.CO$log.CO.GT. <- log(C6H6.CO$CO.GT.)
-
 f_shapiro(C6H6.CO$C6H6.GT.)
+
+# Apply transforms
+C6H6.CO$log.CO.GT. <- log(C6H6.CO$CO.GT.)
 C6H6.CO$log.C6H6.GT. <- log(C6H6.CO$C6H6.GT.)
 
 # Add time labels
-C6H6.CO$time <- hour(C6H6.CO$timestamp)
-C6H6.CO$wday <- wday(C6H6.CO$timestamp)
-C6H6.CO$day <- day(C6H6.CO$timestamp)
-C6H6.CO$week <- week(C6H6.CO$timestamp)
-C6H6.CO$month <- month(C6H6.CO$timestamp)
-C6H6.CO$year <- year(C6H6.CO$timestamp)
+C6H6.CO <- f_time_labels(C6H6.CO)
 
 # Plot relationship between transformed variables
 qplot(log.C6H6.GT., log.CO.GT., data = C6H6.CO)
@@ -283,9 +242,6 @@ co.by.time
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### 2) Polution Forecasts ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-
-
 
 
 
