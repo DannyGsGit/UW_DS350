@@ -4,6 +4,7 @@ library(lubridate)
 library(dplyr)
 library(ggplot2)
 library(car)
+library(simpleboot)
 
 #~~~~~~~~~~~~~~~~~~~~
 #### Data Import ####
@@ -135,6 +136,8 @@ f_plot_prediction_ci <- function(data, feature, target) {
 }
 
 
+
+
 ## CO measures
 CO.data <- f_build_data(air.q.data, GT = "CO.GT.", PT08 = "PT08.S1.CO.")
 f_normplots(CO.data)
@@ -245,6 +248,7 @@ C6H6.CO$log.C6H6.GT. <- log(C6H6.CO$C6H6.GT.)
 C6H6.CO$time <- hour(C6H6.CO$timestamp)
 C6H6.CO$wday <- wday(C6H6.CO$timestamp)
 C6H6.CO$day <- day(C6H6.CO$timestamp)
+C6H6.CO$week <- week(C6H6.CO$timestamp)
 C6H6.CO$month <- month(C6H6.CO$timestamp)
 C6H6.CO$year <- year(C6H6.CO$timestamp)
 
@@ -273,7 +277,103 @@ co.by.time
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### 3) Bootstrap differences- daytime, weekday, etc. ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+f_multilevel_one.boot <- function(data, independent, dependent, type = "mean", R.count = 10000) {
+  ## Description: This function generates bootstrap samples of each level
+  ##              of an independent variable (e.g. "ford" and "gm" levels of variable "make").
+  ## Arguments:
+  ##    data: dataframe
+  ##    independent: independent variable column name
+  ##    dependent: dependent variable column name
+  ##    type: mean or median bootsrap
+  ##    R.count: number of bootstrap samples
+  
+  # Break out target levels
+  if(class(data[, independent]) != "factor") {
+    data[,independent] <- as.factor(data[,independent])
+  }
+  
+  boot.levels <- levels(data[, independent])
+  
+  # Bootstrap means/medians of each level of independent variable
+  boots <- data.frame()  # Pre-allocate results dataframe
+  for (i in 1:length(boot.levels)) {
+    current.level.data <- data[which(data[, independent] == boot.levels[i]), ]  # Data for current level of independent variable
+    boot.level <- one.boot(current.level.data[, dependent], substitute(type), R = R.count)  # Bootstrap R.count iterations of mean/median of current data
+    boots <- rbind(boots, t(boot.level$t))  # Append results to boots dataframe
+  }
+  
+  # Re-orient results and name columns with independent variable levels
+  boots <- as.data.frame(t(boots))
+  colnames(boots) <- boot.levels
+  
+  return(boots)
+}
 
+plot.hist <- function(a, maxs, mins, cols = 'difference of means', nbins = 80, p = 0.05) {
+  ## Description: Histogram plotting function copied from DS350 course code. 
+  breaks = seq(maxs, mins, length.out = (nbins + 1))
+  hist(a, breaks = breaks, main = paste('Histogram of', cols), xlab = cols)
+  abline(v = mean(a), lwd = 4, col = 'red')
+  abline(v = 0, lwd = 4, col = 'blue')
+  abline(v = quantile(a, probs = p/2), lty = 3, col = 'red', lwd = 3)  
+  abline(v = quantile(a, probs = (1 - p/2)), lty = 3, col = 'red', lwd = 3)
+}
+
+f_multi_hist <- function(data, simplify = FALSE, nbins = 80, p = 0.05,
+                         plot.title = "Histogram", y.label = "mean target", x.label = "Level"){
+  ## Description: Builds multiple histograms of bootstrap results for variables with multiple levels.
+  ##              There is a "simplify" option to collapse histograms into simpler point-ranges for 
+  ##              cases where too many levels (more than ~5) generate an overwhelming number of histograms.
+  ##
+  ## Arguments:
+  ##    data: Bootstrap results
+  ##    simplify: Generates point-ranges instead of histograms when TRUE
+  ##    nbins: Number of histogram bins
+  ##    p: Confidence interval threshold
+  ##    plot.title: Plot title
+  ##    y.label: X label
+  ##    x.label: Y label
+  
+  # Get max and min values for plot limits
+  maxs = max(data)
+  mins = min(data)
+  
+  
+  # Show histograms when simplify == FALSE
+  if (simplify == FALSE) {
+    # Use par to merge multiple plots into a single plot window. Use ncol(data) to make as many plots as there are levels.
+    par(mfrow = c(ncol(data), 1))
+    # Generate each individual plot and add to the plot layout initiated in the previous line.
+    for (i in 1:ncol(data)) {
+      plot.hist(data[, i], maxs, mins, cols = colnames(data)[i])
+    }
+    title(plot.title, outer = TRUE, cex.main = 2)
+    # Reset plot window to 1x1 for future plots
+    par(mfrow = c(1, 1))
+  }
+  
+  
+  # Condense into pointrange plots when simplify == TRUE
+  if (simplify == TRUE) {
+    # Calculate mean, upr, lwr values
+    mean <- apply(data, 2, mean)
+    upr <- apply(data, 2, function(x) quantile(x, probs = 1 - p/2))
+    lwr <- apply(data, 2, function(x) quantile(x, probs = p/2))
+    # Combine basic stats into a dataframe
+    plot.data <- data.frame("name" = colnames(data), mean, upr, lwr)
+    # Make name column a factor type, and order factor levels by their means for ordered plotting
+    plot.data$name <- factor(plot.data$name, levels = plot.data$name[order(plot.data$mean)])
+    
+    # Generate pointrange plot of bootstrap results
+    p.multi <- ggplot(plot.data, aes(x = name, y = mean, ymin = lwr, ymax = upr)) +
+      geom_pointrange() +
+      coord_flip() +
+      geom_hline(yintercept = 0) +
+      lims(y = c(min(plot.data$lwr), max(plot.data$upr))) +
+      labs(title = plot.title, y = y.label, x = x.label)
+    print(p.multi)
+  }
+}
 ###
 # Tasks:
 # * Calculate hourly level as proportion of daily average
@@ -281,8 +381,6 @@ co.by.time
 # * Bootstrap differences
 
 #### CO Differences
-
-qplot(timestamp, log.CO.GT., data = C6H6.CO)
 
 ### By time of day
 co.by.time <- ggplot(C6H6.CO, aes(jitter(time), log.CO.GT.)) +
@@ -313,7 +411,10 @@ rel.co.by.time <- ggplot(C6H6.CO, aes(jitter(time), rel.daily.CO)) +
 rel.co.by.time
 
 # Bootsrap differences between hours
+CO.hourly.boot <- f_multilevel_one.boot(C6H6.CO, "time", "rel.daily.CO")
+f_multi_hist(CO.hourly.boot, simplify = TRUE)
 
+# Compare bootstrapped means
 
 
 
@@ -325,6 +426,37 @@ co.by.wday <- ggplot(C6H6.CO, aes(jitter(as.numeric(wday)), log.CO.GT.)) +
   scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
   geom_smooth()
 co.by.wday
+
+# Build dataset with daily averages
+wday.averages <- C6H6.CO %>% select(wday, week, year, log.CO.GT.) %>%
+  group_by(wday, week, year) %>%
+  summarise(daily.CO.mean = mean(log.CO.GT.)) %>%
+  ungroup()
+
+# Get daily means
+weekly.CO.averages <- wday.averages %>% select(week, year, daily.CO.mean) %>%
+  group_by(week, year) %>%
+  summarise(weekly.CO.mean = mean(daily.CO.mean), weekly.CO.sd = sd(daily.CO.mean)) %>%
+  ungroup()
+
+# Merge daily means back into dataset
+wday.averages <- merge(wday.averages, weekly.CO.averages, by = c("week", "year"))
+
+# Calculate relative CO concentration
+wday.averages <- wday.averages %>% mutate(rel.daily.CO = daily.CO.mean - weekly.CO.mean)
+
+rel.co.by.day <- ggplot(wday.averages, aes(jitter(wday), rel.daily.CO)) +
+  geom_point(aes(colour = week, alpha = 0.5, size = 1)) +
+  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 26) +
+  geom_smooth()
+rel.co.by.day
+
+# Bootsrap differences between hours
+CO.daily.boot <- f_multilevel_one.boot(wday.averages, "wday", "rel.daily.CO")
+f_multi_hist(CO.daily.boot, simplify = TRUE)
+
+# Compare bootstrapped means
+
 
 
 
