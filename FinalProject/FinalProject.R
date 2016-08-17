@@ -53,10 +53,6 @@ qplot(x = timestamp, y = AH, data = air.q.data, geom = c("line", "point"))
 qplot(x = timestamp, y = CO.GT., data = air.q.data, geom = c("line", "point"))
 qplot(x = timestamp, y = PT08.S1.CO., data = air.q.data, geom = c("line", "point"))
 
-## NMHC Measures
-qplot(x = timestamp, y = NMHC.GT., data = air.q.data, geom = c("line", "point"))  # Broken?
-qplot(x = timestamp, y = PT08.S2.NMHC., data = air.q.data, geom = c("line", "point"))
-
 ## NOX measures
 qplot(x = timestamp, y = NOx.GT., data = air.q.data, geom = c("line", "point"))
 qplot(x = timestamp, y = PT08.S3.NOx., data = air.q.data, geom = c("line", "point"))
@@ -123,10 +119,19 @@ f_shapiro <- function(data) {
   print(shapiro.test(log(data)))
 }
 
-f_error_plots <- function(data, GT, PT08) {
-  print(plot(data[,substitute(GT)], data$error))
-  print(qqPlot(data$error))
-  print(plot(data[, substitute(GT)], data[, substitute(PT08)]))
+f_predict <- function(data, model, independent) {
+  prediction <- as.data.frame(predict(model, data, interval = "predict"))
+  data <- cbind(data, prediction)
+  data$residuals <- data[,substitute(independent)] - data$fit
+  
+  return(data)
+}
+
+f_plot_prediction_ci <- function(data, feature, target) {
+  plot(data[, substitute(feature)], data[, substitute(target)])
+  lines(data[, substitute(feature)], data$fit, col = "blue", lwd = 2)
+  lines(data[, substitute(feature)], data$lwr, col = "red", lwd = 2)
+  lines(data[, substitute(feature)], data$upr, col = "red", lwd = 2)
 }
 
 
@@ -141,27 +146,32 @@ CO.data$log.CO.GT. <- log(CO.data$CO.GT.)
 f_shapiro(CO.data$PT08.S1.CO.)  # Use log
 CO.data$log.PT08.S1.CO. <- log(CO.data$PT08.S1.CO.)
 
-# Measure GT-PT error
-CO.data$error <- CO.data$log.CO.GT. - CO.data$log.PT08.S1.CO.
-f_error_plots(CO.data, GT = "log.CO.GT.", PT08 = "log.PT08.S1.CO.")
+# Plot relationship between transformed variables
+qplot(log.PT08.S1.CO., log.CO.GT., data = CO.data)
+
+# Model relationship
+CO.model <- lm(log.CO.GT. ~ log.PT08.S1.CO., data = CO.data)
+summary(CO.model)
+plot(CO.model)
+
+# Remove outliers & re-train model
+outliers <- c(2764:2765, 4513:4518, 5703, 5785:5786, 5793, 6800, 6815:6819, 6825, 6837, 7123)
+CO.data.no.outliers <- CO.data[-outliers, ]
+
+CO.model.2 <- lm(log.CO.GT. ~ log.PT08.S1.CO., data = CO.data.no.outliers)
+summary(CO.model.2)
+plot(CO.model.2)
+
+# Measure performance of new model
+CO.data <- f_predict(CO.data, CO.model.2, "log.CO.GT.")
+
+f_plot_prediction_ci(CO.data, "log.PT08.S1.CO.", "log.CO.GT.")
 
 
 
 
-## NMHC Measures
-NMHC.data <- f_build_data(air.q.data, GT = "NMHC.GT.", PT08 = "PT08.S2.NMHC.")
-f_normplots(NMHC.data)
 
-# Transformations
-f_shapiro(NMHC.data$NMHC.GT.)  # Use log
-NMHC.data$log.NMHC.GT. <- log(NMHC.data$NMHC.GT.)
 
-f_shapiro(NMHC.data$PT08.S2.NMHC.)  # Use log
-NMHC.data$log.PT08.S2.NMHC. <- log(NMHC.data$PT08.S2.NMHC.)
-
-# Measure sensor error
-NMHC.data$error <- NMHC.data$log.NMHC.GT. - NMHC.data$log.PT08.S2.NMHC.
-f_error_plots(NMHC.data, GT = "log.NMHC.GT.", PT08 = "log.PT08.S2.NMHC.")
 
 
 
@@ -178,32 +188,120 @@ NOx.data$log.NOx.GT. <- log(NOx.data$NOx.GT.)
 f_shapiro(NOx.data$PT08.S3.NOx.)
 NOx.data$log.PT08.S3.NOx. <- log(NOx.data$PT08.S3.NOx.)
 
-# Measure sensor error
-NOx.data$error <- NOx.data$log.NOx.GT. - NOx.data$log.PT08.S3.NOx.
-f_error_plots(NOx.data, GT = "log.NOx.GT.", PT08 = "log.PT08.S3.NOx.")
+# Plot relationship between transformed variables
+qplot(log.PT08.S3.NOx., log.NOx.GT., data = NOx.data)
+
+# Model relationship
+NOx.model <- lm(log.NOx.GT. ~ log.PT08.S3.NOx., data = NOx.data)
+summary(NOx.model)
+plot(NOx.model)
+
+# Remove outliers & re-train model
+outliers <- c(2897, 5027:5029)
+NOx.data.no.outliers <- NOx.data[-outliers, ]
+
+NOx.model.2 <- lm(log.NOx.GT. ~ log.PT08.S3.NOx., data = NOx.data.no.outliers)
+summary(CO.model.2)
+plot(CO.model.2)
+
+# Measure performance of new model
+NOx.data <- f_predict(NOx.data, NOx.model.2, "log.NOx.GT.")
+
+f_plot_prediction_ci(NOx.data, "log.PT08.S3.NOx.", "log.NOx.GT.")
 
 
 
 
 
-## NO2 measures
-NO2.S4.data <- f_build_data(air.q.data, GT = "NO2.GT.", PT08 = "PT08.S4.NO2.")
-f_normplots(NO2.S4.data)
-NO2.S5.data <- f_build_data(air.q.data, GT = "NO2.GT.", PT08 = "PT08.S5.O3.")
-f_normplots(NO2.S5.data)
+
+
+
+
+
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### 4) Correlation of benzene to pollutants ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Benzene - CO
+C6H6.CO <- f_build_data(air.q.data, GT = "CO.GT.", PT08 = "C6H6.GT.")
+f_normplots(C6H6.CO)
 
 # Transformations
+f_shapiro(C6H6.CO$CO.GT.)
+C6H6.CO$log.CO.GT. <- log(C6H6.CO$CO.GT.)
 
-# Measure sensor errors
+f_shapiro(C6H6.CO$C6H6.GT.)
+C6H6.CO$log.C6H6.GT. <- log(C6H6.CO$C6H6.GT.)
+
+# Plot relationship between transformed variables
+qplot(log.C6H6.GT., log.CO.GT., data = C6H6.CO)
+
+co.by.time <- ggplot(C6H6.CO, aes(log.C6H6.GT., log.CO.GT.)) +
+  geom_point(aes(colour = month, alpha = 0.3, size = 1)) +
+  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6)
+co.by.time
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### 2) Polution Forecasts ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
 
 
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#### Correlation of benzene to pollutants ####
+#### 3) Bootstrap differences- daytime, weekday, etc. ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-C6H6.NMHC <- f_build_data(air.q.data, GT = "C6H6.GT.", PT08 = "NMHC.GT.")
-C6H6.CO <- f_build_data(air.q.data, GT = "C6H6.GT.", PT08 = "CO.GT.")
-C6H6.NOx <- f_build_data(air.q.data, GT = "C6H6.GT.", PT08 = "NOx.GT.")
-C6H6.NO2 <- f_build_data(air.q.data, GT = "C6H6.GT.", PT08 = "NO2.GT.")
+## CO forecasts
+
+qplot(timestamp, log.CO.GT., data = C6H6.CO)
+qplot(timestamp, log.C6H6.GT., data = C6H6.CO)
+
+# Add time labels
+C6H6.CO$time <- hour(C6H6.CO$timestamp)
+C6H6.CO$day <- wday(C6H6.CO$timestamp)
+C6H6.CO$month <- month(C6H6.CO$timestamp)
+
+# By time of day
+co.by.time <- ggplot(C6H6.CO, aes(jitter(time), log.CO.GT.)) +
+  geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
+  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
+  geom_smooth()
+co.by.time
+
+c6h6.by.time <- ggplot(C6H6.CO, aes(jitter(time), log.C6H6.GT.)) +
+  geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
+  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
+  geom_smooth()
+c6h6.by.time
+
+
+# By weekday
+co.by.day <- ggplot(C6H6.CO, aes(jitter(as.numeric(day)), log.CO.GT.)) +
+  geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
+  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
+  geom_smooth()
+co.by.day
+
+c6h6.by.day <- ggplot(C6H6.CO, aes(jitter(as.numeric(day)), log.C6H6.GT.)) +
+  geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
+  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
+  geom_smooth()
+c6h6.by.day
+
+qplot(day, log.CO.GT., data = C6H6.CO)
+qplot(day, log.C6H6.GT., data = C6H6.CO)
+
+## NOx forecasts
