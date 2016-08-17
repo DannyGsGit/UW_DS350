@@ -241,6 +241,13 @@ C6H6.CO$log.CO.GT. <- log(C6H6.CO$CO.GT.)
 f_shapiro(C6H6.CO$C6H6.GT.)
 C6H6.CO$log.C6H6.GT. <- log(C6H6.CO$C6H6.GT.)
 
+# Add time labels
+C6H6.CO$time <- hour(C6H6.CO$timestamp)
+C6H6.CO$wday <- wday(C6H6.CO$timestamp)
+C6H6.CO$day <- day(C6H6.CO$timestamp)
+C6H6.CO$month <- month(C6H6.CO$timestamp)
+C6H6.CO$year <- year(C6H6.CO$timestamp)
+
 # Plot relationship between transformed variables
 qplot(log.C6H6.GT., log.CO.GT., data = C6H6.CO)
 
@@ -248,6 +255,9 @@ co.by.time <- ggplot(C6H6.CO, aes(log.C6H6.GT., log.CO.GT.)) +
   geom_point(aes(colour = month, alpha = 0.3, size = 1)) +
   scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6)
 co.by.time
+
+
+
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -264,44 +274,58 @@ co.by.time
 #### 3) Bootstrap differences- daytime, weekday, etc. ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-## CO forecasts
+###
+# Tasks:
+# * Calculate hourly level as proportion of daily average
+# * Daily level as proportion of weekly average
+# * Bootstrap differences
+
+#### CO Differences
 
 qplot(timestamp, log.CO.GT., data = C6H6.CO)
-qplot(timestamp, log.C6H6.GT., data = C6H6.CO)
 
-# Add time labels
-C6H6.CO$time <- hour(C6H6.CO$timestamp)
-C6H6.CO$day <- wday(C6H6.CO$timestamp)
-C6H6.CO$month <- month(C6H6.CO$timestamp)
-
-# By time of day
+### By time of day
 co.by.time <- ggplot(C6H6.CO, aes(jitter(time), log.CO.GT.)) +
   geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
   scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
   geom_smooth()
 co.by.time
 
-c6h6.by.time <- ggplot(C6H6.CO, aes(jitter(time), log.C6H6.GT.)) +
+## Adjust hourly values by daily means
+
+# Get daily means
+daily.CO.averages <- C6H6.CO %>% select(day, month, year, log.CO.GT.)
+daily.CO.averages <- group_by(daily.CO.averages, day, month, year)
+daily.CO.averages <- summarise(daily.CO.averages, 
+                               daily.CO.mean = mean(log.CO.GT.),
+                               daily.CO.sd = sd(log.CO.GT.))
+
+# Merge daily means back into dataset
+C6H6.CO <- merge(C6H6.CO, daily.CO.averages, by = c("day", "month", "year"))
+
+# Calculate relative CO concentration
+C6H6.CO <- C6H6.CO %>% mutate(rel.daily.CO = log.CO.GT. - daily.CO.mean)
+
+rel.co.by.time <- ggplot(C6H6.CO, aes(jitter(time), rel.daily.CO)) +
   geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
   scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
   geom_smooth()
-c6h6.by.time
+rel.co.by.time
+
+# Bootsrap differences between hours
+
+
+
+
 
 
 # By weekday
-co.by.day <- ggplot(C6H6.CO, aes(jitter(as.numeric(day)), log.CO.GT.)) +
+co.by.wday <- ggplot(C6H6.CO, aes(jitter(as.numeric(wday)), log.CO.GT.)) +
   geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
   scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
   geom_smooth()
-co.by.day
+co.by.wday
 
-c6h6.by.day <- ggplot(C6H6.CO, aes(jitter(as.numeric(day)), log.C6H6.GT.)) +
-  geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
-  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
-  geom_smooth()
-c6h6.by.day
 
-qplot(day, log.CO.GT., data = C6H6.CO)
-qplot(day, log.C6H6.GT., data = C6H6.CO)
 
 ## NOx forecasts
