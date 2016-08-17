@@ -149,6 +149,14 @@ CO.data$log.CO.GT. <- log(CO.data$CO.GT.)
 f_shapiro(CO.data$PT08.S1.CO.)  # Use log
 CO.data$log.PT08.S1.CO. <- log(CO.data$PT08.S1.CO.)
 
+# Add time labels
+CO.data$time <- hour(CO.data$timestamp)
+CO.data$wday <- wday(CO.data$timestamp)
+CO.data$day <- day(CO.data$timestamp)
+CO.data$week <- week(CO.data$timestamp)
+CO.data$month <- month(CO.data$timestamp)
+CO.data$year <- year(CO.data$timestamp)
+
 # Plot relationship between transformed variables
 qplot(log.PT08.S1.CO., log.CO.GT., data = CO.data)
 
@@ -190,6 +198,14 @@ NOx.data$log.NOx.GT. <- log(NOx.data$NOx.GT.)
 
 f_shapiro(NOx.data$PT08.S3.NOx.)
 NOx.data$log.PT08.S3.NOx. <- log(NOx.data$PT08.S3.NOx.)
+
+# Add time labels
+NOx.data$time <- hour(NOx.data$timestamp)
+NOx.data$wday <- wday(NOx.data$timestamp)
+NOx.data$day <- day(NOx.data$timestamp)
+NOx.data$week <- week(NOx.data$timestamp)
+NOx.data$month <- month(NOx.data$timestamp)
+NOx.data$year <- year(NOx.data$timestamp)
 
 # Plot relationship between transformed variables
 qplot(log.PT08.S3.NOx., log.NOx.GT., data = NOx.data)
@@ -277,6 +293,22 @@ co.by.time
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### 3) Bootstrap differences- daytime, weekday, etc. ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+#### Functions
+
+f_timeplot <- function(data, x, y, color, alpha = 0.5, midpoint) {
+  data$fun.x <- data[,x]
+  data$fun.y <- data[,y]
+  data$fun.color <- data[,color]
+  
+  g.plot <- ggplot(data, aes(jitter(fun.x), fun.y)) +
+    geom_point(aes(color = fun.color, alpha = alpha, size = 1)) +
+    scale_color_gradient2(mid = "red", high = "blue", low = "blue", midpoint = midpoint) +
+    geom_smooth()
+  
+  print(g.plot)
+}
+
 f_multilevel_one.boot <- function(data, independent, dependent, type = "mean", R.count = 10000) {
   ## Description: This function generates bootstrap samples of each level
   ##              of an independent variable (e.g. "ford" and "gm" levels of variable "make").
@@ -305,6 +337,68 @@ f_multilevel_one.boot <- function(data, independent, dependent, type = "mean", R
   # Re-orient results and name columns with independent variable levels
   boots <- as.data.frame(t(boots))
   colnames(boots) <- boot.levels
+  
+  return(boots)
+}
+
+f_multilevel_two.boot <- function(data, independent, dependent, type = "mean", R.count = 10000) {
+  ## Description: This function generates bootstrap samples of DIFFERENCES between each level
+  ##              of an independent variable (e.g. "ford" and "gm" levels of variable "make").
+  ## Arguments:
+  ##    data: dataframe
+  ##    independent: independent variable column name
+  ##    dependent: dependent variable column name
+  ##    type: mean or median bootsrap
+  ##    R.count: number of bootstrap samples
+  
+  
+  # List out all levels of independent variable
+  if(class(data[, independent]) != "factor") {
+    data[,independent] <- as.factor(data[,independent])
+  }
+  
+  boot.levels <- levels(data[, independent])
+  
+  # Generate all combinations of levels
+  # Example:
+  #     1    2    3
+  # 1  1,1  1,2  1,3
+  # 2  2,1  2,2  2,3
+  # 3  3,1  3,2  3,3
+  boot.combinations <- expand.grid(boot.levels, boot.levels)
+  
+  # Remove comparisons of a level to itself
+  # Example: Remove 1,1  2,2  and 3,3
+  boot.combinations <- boot.combinations[which(boot.combinations$Var1 != boot.combinations$Var2),]
+  
+  # Generate numeric columns from factor levels for easy manipulation
+  boot.combinations$Num1 <- as.numeric(boot.combinations$Var1)
+  boot.combinations$Num2 <- as.numeric(boot.combinations$Var2)
+  # Use numeric values to remove duplicate, but reversed comparisons
+  # Example: 1,2 and 2,1 are the same. Note that in the upper half of the diagonal matrix, the
+  #          row number is always lower than the column number. This makes a simple filtering rule:
+  #     1     2      3
+  # 1  1,1  [1,2]  [1,3]
+  # 2  2,1   2,2   [2,3]
+  # 3  3,1   3,2    3,3
+  boot.combinations <- boot.combinations[which(boot.combinations$Num1 < boot.combinations$Num2), ]
+  # Remove numeric columns now that we're done filtering.
+  boot.combinations <- boot.combinations %>% select(Var1, Var2)
+  
+  # Generate bootstraps for the pairs.
+  boots <- data.frame()
+  for (i in 1:nrow(boot.combinations)) {
+    sample.a <- data[which(data[, independent] == boot.combinations$Var1[i]), ]
+    sample.b <- data[which(data[, independent] == boot.combinations$Var2[i]), ]
+    
+    two.boot.temp <- two.boot(sample.a[, dependent], sample.b[, dependent], substitute(type), R = R.count)
+    
+    boots <- rbind(boots, t(two.boot.temp$t))
+  }
+  
+  # Re-orient results and add column names
+  boots <- as.data.frame(t(boots))
+  colnames(boots) <- paste(boot.combinations$Var1, boot.combinations$Var2, sep = ".")
   
   return(boots)
 }
@@ -374,61 +468,39 @@ f_multi_hist <- function(data, simplify = FALSE, nbins = 80, p = 0.05,
     print(p.multi)
   }
 }
-###
-# Tasks:
-# * Calculate hourly level as proportion of daily average
-# * Daily level as proportion of weekly average
-# * Bootstrap differences
+
 
 #### CO Differences
 
 ### By time of day
-co.by.time <- ggplot(C6H6.CO, aes(jitter(time), log.CO.GT.)) +
-  geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
-  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
-  geom_smooth()
-co.by.time
-
-## Adjust hourly values by daily means
-
 # Get daily means
-daily.CO.averages <- C6H6.CO %>% select(day, month, year, log.CO.GT.)
-daily.CO.averages <- group_by(daily.CO.averages, day, month, year)
-daily.CO.averages <- summarise(daily.CO.averages, 
-                               daily.CO.mean = mean(log.CO.GT.),
-                               daily.CO.sd = sd(log.CO.GT.))
+daily.CO.averages <- CO.data %>% select(day, month, year, log.CO.GT.) %>%
+  group_by(day, month, year) %>% 
+  summarise(daily.CO.mean = mean(log.CO.GT.), daily.CO.sd = sd(log.CO.GT.)) %>%
+  ungroup()
 
 # Merge daily means back into dataset
-C6H6.CO <- merge(C6H6.CO, daily.CO.averages, by = c("day", "month", "year"))
+CO.data <- merge(CO.data, daily.CO.averages, by = c("day", "month", "year"))
 
 # Calculate relative CO concentration
-C6H6.CO <- C6H6.CO %>% mutate(rel.daily.CO = log.CO.GT. - daily.CO.mean)
+CO.data <- CO.data %>% mutate(rel.daily.CO = log.CO.GT. - daily.CO.mean)
 
-rel.co.by.time <- ggplot(C6H6.CO, aes(jitter(time), rel.daily.CO)) +
-  geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
-  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
-  geom_smooth()
-rel.co.by.time
+f_timeplot(CO.data, x = "time", y = "rel.daily.CO", color = "month", midpoint = 6)
 
 # Bootsrap differences between hours
-CO.hourly.boot <- f_multilevel_one.boot(C6H6.CO, "time", "rel.daily.CO")
+CO.hourly.boot <- f_multilevel_one.boot(CO.data, "time", "rel.daily.CO")
 f_multi_hist(CO.hourly.boot, simplify = TRUE)
 
 # Compare bootstrapped means
+CO.hourly.two.boot <- f_multilevel_two.boot(CO.data, "time", "rel.daily.CO")
+f_multi_hist(CO.hourly.two.boot, simplify = TRUE)
 
 
 
 
-
-# By weekday
-co.by.wday <- ggplot(C6H6.CO, aes(jitter(as.numeric(wday)), log.CO.GT.)) +
-  geom_point(aes(colour = month, alpha = 0.5, size = 1)) +
-  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6) +
-  geom_smooth()
-co.by.wday
-
+### By weekday
 # Build dataset with daily averages
-wday.averages <- C6H6.CO %>% select(wday, week, year, log.CO.GT.) %>%
+wday.averages <- CO.data %>% select(wday, week, year, log.CO.GT.) %>%
   group_by(wday, week, year) %>%
   summarise(daily.CO.mean = mean(log.CO.GT.)) %>%
   ungroup()
@@ -445,19 +517,74 @@ wday.averages <- merge(wday.averages, weekly.CO.averages, by = c("week", "year")
 # Calculate relative CO concentration
 wday.averages <- wday.averages %>% mutate(rel.daily.CO = daily.CO.mean - weekly.CO.mean)
 
-rel.co.by.day <- ggplot(wday.averages, aes(jitter(wday), rel.daily.CO)) +
-  geom_point(aes(colour = week, alpha = 0.5, size = 1)) +
-  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 26) +
-  geom_smooth()
-rel.co.by.day
+f_timeplot(wday.averages, x = "wday", y = "rel.daily.CO", color = "week", midpoint = 26)
 
 # Bootsrap differences between hours
 CO.daily.boot <- f_multilevel_one.boot(wday.averages, "wday", "rel.daily.CO")
 f_multi_hist(CO.daily.boot, simplify = TRUE)
 
 # Compare bootstrapped means
+CO.daily.two.boot <- f_multilevel_two.boot(wday.averages, "wday", "rel.daily.CO")
+f_multi_hist(CO.daily.two.boot, simplify = TRUE)
 
 
 
 
-## NOx forecasts
+
+
+
+#### NOx differences
+### By time of day
+# Get daily means
+daily.NOx.averages <- NOx.data %>% select(day, month, year, log.NOx.GT.) %>%
+  group_by(day, month, year) %>% 
+  summarise(daily.NOx.mean = mean(log.NOx.GT.), daily.NOx.sd = sd(log.NOx.GT.)) %>%
+  ungroup()
+
+# Merge daily means back into dataset
+NOx.data <- merge(NOx.data, daily.NOx.averages, by = c("day", "month", "year"))
+
+# Calculate relative NOx concentration
+NOx.data <- NOx.data %>% mutate(rel.daily.NOx = log.NOx.GT. - daily.NOx.mean)
+
+f_timeplot(NOx.data, x = "time", y = "rel.daily.NOx", color = "month", midpoint = 6)
+
+# Bootsrap differences between hours
+NOx.hourly.boot <- f_multilevel_one.boot(NOx.data, "time", "rel.daily.NOx")
+f_multi_hist(NOx.hourly.boot, simplify = TRUE)
+
+# Compare bootstrapped means
+NOx.hourly.two.boot <- f_multilevel_two.boot(NOx.data, "time", "rel.daily.NOx")
+f_multi_hist(NOx.hourly.two.boot, simplify = TRUE)
+
+
+
+
+### By weekday
+# Build dataset with daily averages
+wday.averages <- NOx.data %>% select(wday, week, year, log.NOx.GT.) %>%
+  group_by(wday, week, year) %>%
+  summarise(daily.NOx.mean = mean(log.NOx.GT.)) %>%
+  ungroup()
+
+# Get daily means
+weekly.NOx.averages <- wday.averages %>% select(week, year, daily.NOx.mean) %>%
+  group_by(week, year) %>%
+  summarise(weekly.NOx.mean = mean(daily.NOx.mean), weekly.NOx.sd = sd(daily.NOx.mean)) %>%
+  ungroup()
+
+# Merge daily means back into dataset
+wday.averages <- merge(wday.averages, weekly.NOx.averages, by = c("week", "year"))
+
+# Calculate relative NOx concentration
+wday.averages <- wday.averages %>% mutate(rel.daily.NOx = daily.NOx.mean - weekly.NOx.mean)
+
+f_timeplot(wday.averages, x = "wday", y = "rel.daily.NOx", color = "week", midpoint = 26)
+
+# Bootsrap differences between hours
+NOx.daily.boot <- f_multilevel_one.boot(wday.averages, "wday", "rel.daily.NOx")
+f_multi_hist(NOx.daily.boot, simplify = TRUE)
+
+# Compare bootstrapped means
+NOx.daily.two.boot <- f_multilevel_two.boot(wday.averages, "wday", "rel.daily.NOx")
+f_multi_hist(NOx.daily.two.boot, simplify = TRUE)
