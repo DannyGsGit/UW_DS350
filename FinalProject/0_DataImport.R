@@ -58,7 +58,7 @@ str(retail.data)
 # Returns processing function.
 f_process_returns <- function(order.data) {
   
-  # Flog orders as returns
+  # Flag orders as returns
   return.columns <- c("InvoiceNo", "StockCode", "CustomerID", "Quantity")
   return.index <- grep("c", order.data$InvoiceNo, ignore.case = TRUE)
   order.data$return <- FALSE
@@ -435,8 +435,8 @@ lifecycle.grid <- customer.metrics %>%
   mutate(CustomerID = 'CustomerID') %>%
   ungroup()
 
-lifecycle.grid <- dcast(lifecycle.grid, frequency.bin ~ recency.bin,
-                        value.var = 'quantity', fun.aggregate = sum)
+# lifecycle.grid <- dcast(lifecycle.grid, frequency.bin ~ recency.bin,
+#                         value.var = 'quantity', fun.aggregate = sum)
 
 
 # Plot the results
@@ -444,20 +444,14 @@ ggplot(lifecycle.grid, aes(x = CustomerID, y = quantity, fill = quantity)) +
   geom_bar(stat = 'identity') +
   facet_grid(frequency.bin ~ recency.bin)
 
-# Add top SKUs to the plot to see how items are distributed
-
-# Use quadrants to segment customers
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 #### What do we want to do? ####
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-# Use clean order data for customer segmentation
-# What does a typical order look like?
-# Recomendation system?
-# Seasonality forecasts? For SKUs?
-# BSTS
+# Seasonality & forecasting
+
 
 
 
