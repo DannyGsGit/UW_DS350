@@ -296,6 +296,49 @@ co.by.time
 
 #### Functions
 
+f_adjust_hourly <- function(data, target.col) {
+  
+  data$target <- data[,target.col]
+  
+  # Get daily means
+  daily.averages <- data %>% select(day, month, year, target) %>%
+    group_by(day, month, year) %>% 
+    summarise(daily.mean = mean(target)) %>%
+    ungroup()
+  
+  # Merge daily means back into dataset
+  data <- merge(data, daily.averages, by = c("day", "month", "year"))
+  
+  # Calculate relative CO concentration
+  data <- data %>% mutate(rel.daily.target = target - daily.mean)
+  
+  return(data)
+}
+
+f_adjust_daily <- function(data, target.col) {
+  data$target <- data[,target.col]
+  
+  # Build dataset with daily averages
+  wday.averages <- data %>% select(wday, week, year, target) %>%
+    group_by(wday, week, year) %>%
+    summarise(daily.mean = mean(target)) %>%
+    ungroup()
+  
+  # Get daily means
+  weekly.averages <- wday.averages %>% select(week, year, daily.mean) %>%
+    group_by(week, year) %>%
+    summarise(weekly.mean = mean(daily.mean)) %>%
+    ungroup()
+  
+  # Merge daily means back into dataset
+  wday.averages <- merge(wday.averages, weekly.averages, by = c("week", "year"))
+  
+  # Calculate relative CO concentration
+  wday.averages <- wday.averages %>% mutate(rel.daily.target = daily.mean - weekly.mean)
+  
+  return(wday.averages)
+}
+
 f_timeplot <- function(data, x, y, color, alpha = 0.5, midpoint) {
   data$fun.x <- data[,x]
   data$fun.y <- data[,y]
@@ -473,58 +516,28 @@ f_multi_hist <- function(data, simplify = FALSE, nbins = 80, p = 0.05,
 #### CO Differences
 
 ### By time of day
-# Get daily means
-daily.CO.averages <- CO.data %>% select(day, month, year, log.CO.GT.) %>%
-  group_by(day, month, year) %>% 
-  summarise(daily.CO.mean = mean(log.CO.GT.), daily.CO.sd = sd(log.CO.GT.)) %>%
-  ungroup()
-
-# Merge daily means back into dataset
-CO.data <- merge(CO.data, daily.CO.averages, by = c("day", "month", "year"))
-
-# Calculate relative CO concentration
-CO.data <- CO.data %>% mutate(rel.daily.CO = log.CO.GT. - daily.CO.mean)
-
-f_timeplot(CO.data, x = "time", y = "rel.daily.CO", color = "month", midpoint = 6)
+CO.data <- f_adjust_hourly(CO.data, "log.CO.GT.")
+f_timeplot(CO.data, x = "time", y = "rel.daily.target", color = "month", midpoint = 6)
 
 # Bootsrap differences between hours
-CO.hourly.boot <- f_multilevel_one.boot(CO.data, "time", "rel.daily.CO")
+CO.hourly.boot <- f_multilevel_one.boot(CO.data, "time", "rel.daily.target")
 f_multi_hist(CO.hourly.boot, simplify = TRUE)
 
 # Compare bootstrapped means
-CO.hourly.two.boot <- f_multilevel_two.boot(CO.data, "time", "rel.daily.CO")
+CO.hourly.two.boot <- f_multilevel_two.boot(CO.data, "time", "rel.daily.target")
 f_multi_hist(CO.hourly.two.boot, simplify = TRUE)
 
 
-
-
 ### By weekday
-# Build dataset with daily averages
-wday.averages <- CO.data %>% select(wday, week, year, log.CO.GT.) %>%
-  group_by(wday, week, year) %>%
-  summarise(daily.CO.mean = mean(log.CO.GT.)) %>%
-  ungroup()
-
-# Get daily means
-weekly.CO.averages <- wday.averages %>% select(week, year, daily.CO.mean) %>%
-  group_by(week, year) %>%
-  summarise(weekly.CO.mean = mean(daily.CO.mean), weekly.CO.sd = sd(daily.CO.mean)) %>%
-  ungroup()
-
-# Merge daily means back into dataset
-wday.averages <- merge(wday.averages, weekly.CO.averages, by = c("week", "year"))
-
-# Calculate relative CO concentration
-wday.averages <- wday.averages %>% mutate(rel.daily.CO = daily.CO.mean - weekly.CO.mean)
-
-f_timeplot(wday.averages, x = "wday", y = "rel.daily.CO", color = "week", midpoint = 26)
+wday.averages <- f_adjust_daily(CO.data, target.col = "log.CO.GT.")
+f_timeplot(wday.averages, x = "wday", y = "rel.daily.target", color = "week", midpoint = 26)
 
 # Bootsrap differences between hours
-CO.daily.boot <- f_multilevel_one.boot(wday.averages, "wday", "rel.daily.CO")
+CO.daily.boot <- f_multilevel_one.boot(wday.averages, "wday", "rel.daily.target")
 f_multi_hist(CO.daily.boot, simplify = TRUE)
 
 # Compare bootstrapped means
-CO.daily.two.boot <- f_multilevel_two.boot(wday.averages, "wday", "rel.daily.CO")
+CO.daily.two.boot <- f_multilevel_two.boot(wday.averages, "wday", "rel.daily.target")
 f_multi_hist(CO.daily.two.boot, simplify = TRUE)
 
 
@@ -535,56 +548,27 @@ f_multi_hist(CO.daily.two.boot, simplify = TRUE)
 
 #### NOx differences
 ### By time of day
-# Get daily means
-daily.NOx.averages <- NOx.data %>% select(day, month, year, log.NOx.GT.) %>%
-  group_by(day, month, year) %>% 
-  summarise(daily.NOx.mean = mean(log.NOx.GT.), daily.NOx.sd = sd(log.NOx.GT.)) %>%
-  ungroup()
-
-# Merge daily means back into dataset
-NOx.data <- merge(NOx.data, daily.NOx.averages, by = c("day", "month", "year"))
-
-# Calculate relative NOx concentration
-NOx.data <- NOx.data %>% mutate(rel.daily.NOx = log.NOx.GT. - daily.NOx.mean)
-
-f_timeplot(NOx.data, x = "time", y = "rel.daily.NOx", color = "month", midpoint = 6)
+NOx.data <- f_adjust_hourly(NOx.data, "log.NOx.GT.")
+f_timeplot(NOx.data, x = "time", y = "rel.daily.target", color = "month", midpoint = 6)
 
 # Bootsrap differences between hours
-NOx.hourly.boot <- f_multilevel_one.boot(NOx.data, "time", "rel.daily.NOx")
+NOx.hourly.boot <- f_multilevel_one.boot(NOx.data, "time", "rel.daily.target")
 f_multi_hist(NOx.hourly.boot, simplify = TRUE)
 
 # Compare bootstrapped means
-NOx.hourly.two.boot <- f_multilevel_two.boot(NOx.data, "time", "rel.daily.NOx")
+NOx.hourly.two.boot <- f_multilevel_two.boot(NOx.data, "time", "rel.daily.target")
 f_multi_hist(NOx.hourly.two.boot, simplify = TRUE)
-
-
 
 
 ### By weekday
 # Build dataset with daily averages
-wday.averages <- NOx.data %>% select(wday, week, year, log.NOx.GT.) %>%
-  group_by(wday, week, year) %>%
-  summarise(daily.NOx.mean = mean(log.NOx.GT.)) %>%
-  ungroup()
-
-# Get daily means
-weekly.NOx.averages <- wday.averages %>% select(week, year, daily.NOx.mean) %>%
-  group_by(week, year) %>%
-  summarise(weekly.NOx.mean = mean(daily.NOx.mean), weekly.NOx.sd = sd(daily.NOx.mean)) %>%
-  ungroup()
-
-# Merge daily means back into dataset
-wday.averages <- merge(wday.averages, weekly.NOx.averages, by = c("week", "year"))
-
-# Calculate relative NOx concentration
-wday.averages <- wday.averages %>% mutate(rel.daily.NOx = daily.NOx.mean - weekly.NOx.mean)
-
-f_timeplot(wday.averages, x = "wday", y = "rel.daily.NOx", color = "week", midpoint = 26)
+wday.averages <- f_adjust_daily(NOx.data, target.col = "log.NOx.GT.")
+f_timeplot(wday.averages, x = "wday", y = "rel.daily.target", color = "week", midpoint = 26)
 
 # Bootsrap differences between hours
-NOx.daily.boot <- f_multilevel_one.boot(wday.averages, "wday", "rel.daily.NOx")
+NOx.daily.boot <- f_multilevel_one.boot(wday.averages, "wday", "rel.daily.target")
 f_multi_hist(NOx.daily.boot, simplify = TRUE)
 
 # Compare bootstrapped means
-NOx.daily.two.boot <- f_multilevel_two.boot(wday.averages, "wday", "rel.daily.NOx")
+NOx.daily.two.boot <- f_multilevel_two.boot(wday.averages, "wday", "rel.daily.target")
 f_multi_hist(NOx.daily.two.boot, simplify = TRUE)
