@@ -5,6 +5,7 @@ library(dplyr)
 library(ggplot2)
 library(car)
 library(simpleboot)
+library(tseries)
 
 #~~~~~~~~~~~~~~~~~~~~
 #### Data Import ####
@@ -208,32 +209,6 @@ f_plot_prediction_ci(NOx.data, "log.PT08.S3.NOx.", "log.NOx.GT.")
 
 
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#### 4) Correlation of benzene to pollutants ####
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-## Benzene - CO
-C6H6.CO <- f_build_data(air.q.data, GT = "CO.GT.", PT08 = "C6H6.GT.")
-
-# Check normality of variables
-f_normplots(C6H6.CO)
-f_shapiro(C6H6.CO$CO.GT.)
-f_shapiro(C6H6.CO$C6H6.GT.)
-
-# Apply transforms
-C6H6.CO$log.CO.GT. <- log(C6H6.CO$CO.GT.)
-C6H6.CO$log.C6H6.GT. <- log(C6H6.CO$C6H6.GT.)
-
-# Add time labels
-C6H6.CO <- f_time_labels(C6H6.CO)
-
-# Plot relationship between transformed variables
-qplot(log.C6H6.GT., log.CO.GT., data = C6H6.CO)
-
-co.by.time <- ggplot(C6H6.CO, aes(log.C6H6.GT., log.CO.GT.)) +
-  geom_point(aes(colour = month, alpha = 0.3, size = 1)) +
-  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6)
-co.by.time
 
 
 
@@ -244,6 +219,35 @@ co.by.time
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
+
+### CO forecasts
+
+# Generate a CO dataset with imputed values for missing data
+library(imputeTS)
+library(forecast)
+
+# Use daily measures
+
+CO.ts <- CO.data %>% select(day, month, year, log.CO.GT.) %>%
+  group_by(day, month, year) %>%
+  summarise(daily.mean = mean(log.CO.GT.)) %>%
+  ungroup() %>%
+  arrange(year, month, day) %>%
+  select(daily.mean)
+
+CO.ts <- CO.data %>% select(week, year, log.CO.GT.) %>%
+  group_by(week, year) %>%
+  summarise(weekly.mean = mean(log.CO.GT.)) %>%
+  ungroup() %>%
+  arrange(year, week) %>%
+  select(weekly.mean)
+
+CO.ts <- msts(CO.ts, seasonal.periods = c(52), start = 2004 + 69/365.25)
+plot(CO.ts)
+
+CO.arima <- auto.arima(CO.ts)
+CO.forecast <- forecast(CO.arima, h = 15)
+plot(CO.forecast)
 
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -528,3 +532,36 @@ f_multi_hist(NOx.daily.boot, simplify = TRUE)
 # Compare bootstrapped means
 NOx.daily.two.boot <- f_multilevel_two.boot(wday.averages, "wday", "rel.daily.target")
 f_multi_hist(NOx.daily.two.boot, simplify = TRUE)
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+#### 4) Correlation of benzene to pollutants ####
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+## Benzene - CO
+C6H6.CO <- f_build_data(air.q.data, GT = "CO.GT.", PT08 = "C6H6.GT.")
+
+# Check normality of variables
+f_normplots(C6H6.CO)
+f_shapiro(C6H6.CO$CO.GT.)
+f_shapiro(C6H6.CO$C6H6.GT.)
+
+# Apply transforms
+C6H6.CO$log.CO.GT. <- log(C6H6.CO$CO.GT.)
+C6H6.CO$log.C6H6.GT. <- log(C6H6.CO$C6H6.GT.)
+
+# Add time labels
+C6H6.CO <- f_time_labels(C6H6.CO)
+
+# Plot relationship between transformed variables
+qplot(log.C6H6.GT., log.CO.GT., data = C6H6.CO)
+
+co.by.time <- ggplot(C6H6.CO, aes(log.C6H6.GT., log.CO.GT.)) +
+  geom_point(aes(colour = month, alpha = 0.3, size = 1)) +
+  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6)
+co.by.time
+
