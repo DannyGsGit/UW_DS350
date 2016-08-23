@@ -6,13 +6,24 @@ library(ggplot2)
 library(car)
 library(simpleboot)
 library(tseries)
+library(knitr)
+library(RColorBrewer)
 
-#~~~~~~~~~~~~~~~~~~~~
+source('FinalProject_Functions.R')
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #### Data Import ####
-#~~~~~~~~~~~~~~~~~~~~
 
 ## Import raw data
 air.q.data <- read.csv("data/AirQualityUCI.csv", header = TRUE, stringsAsFactors = FALSE)
+
+## Build clean date column
+air.q.data$timestamp <- paste(air.q.data$Date, air.q.data$Time, sep = " ") 
+air.q.data$timestamp <-mdy_hms(air.q.data$timestamp)
 
 ## Column definitions:
 # 0 Date	(DD/MM/YYYY) 
@@ -34,100 +45,26 @@ air.q.data <- read.csv("data/AirQualityUCI.csv", header = TRUE, stringsAsFactors
 ## Note: "GT" collumns contain ground truth measures, while PT08 columns are sensor readings
 
 
-## Build clean date column
-air.q.data$timestamp <- paste(air.q.data$Date, air.q.data$Time, sep = " ") 
-air.q.data$timestamp <-mdy_hms(air.q.data$timestamp)
 
 
-#~~~~~~~~~~~~~~~~~~~~
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
 #### Exploration ####
-#~~~~~~~~~~~~~~~~~~~~
 
+## View the data structure
 str(air.q.data)
 
+## Investigate pair plots
+pairs(air.q.data[,3:15])
 
 
 
-##################
-# Questions:
-# 1) How well do the sensors match the ground truth recordings?
-# 2) Forecast polution levels
-# 3) Bootstrap differences in day/night, days, months
-# 4) How does benzene correlate to pollutants?
 
 
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#### 1) Sensor Performance ####
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-
-f_build_data <- function(data, GT, PT08) {
-  new.data <- data[ , c("timestamp", substitute(GT), substitute(PT08))]
-  new.data <- new.data[which(new.data[,2] > -200), ]
-  new.data <- new.data[which(new.data[,3] > -200), ]
-  
-  return(new.data)
-}
-
-f_normplots <- function(data) {
-  par(mfrow = c(2,2))
-  hist(data[,2])
-  qqPlot(data[,2])
-  hist(log(data[,2]))
-  qqPlot(log(data[,2]))
-  par(mfrow = c(1,1))
-  
-  par(mfrow = c(2,2))
-  hist(data[,3])
-  qqPlot(data[,3])
-  hist(log(data[,3]))
-  qqPlot(log(data[,3]))
-  par(mfrow = c(1,1))
-
-}
-
-f_shapiro <- function(data) {
-  if (length(data) > 5000) {
-    data <- data[sample(1:length(data), size = 5000)]
-  }
-  
-  print(shapiro.test(data))
-  
-  print(shapiro.test(log(data)))
-}
-
-f_predict <- function(data, model, independent) {
-  prediction <- as.data.frame(predict(model, data, interval = "predict"))
-  data <- cbind(data, prediction)
-  data$residuals <- data[,substitute(independent)] - data$fit
-  
-  return(data)
-}
-
-f_plot_prediction_ci <- function(data, feature, target) {
-  plot(data[, substitute(feature)], data[, substitute(target)])
-  lines(data[, substitute(feature)], data$fit, col = "blue", lwd = 2)
-  lines(data[, substitute(feature)], data$lwr, col = "red", lwd = 2)
-  lines(data[, substitute(feature)], data$upr, col = "red", lwd = 2)
-}
-
-f_time_labels <- function(data) {
-  data$time <- hour(data$timestamp)
-  data$wday <- wday(data$timestamp)
-  data$day <- day(data$timestamp)
-  data$week <- week(data$timestamp)
-  data$month <- month(data$timestamp)
-  data$year <- year(data$timestamp)
-  
-  return(data)
-}
-
-f_remove_outliers <- function(data, outliers) {
-  data <- data[-outliers]
-  return(data)
-}
-
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#### 1) Generate Data Subsets ####
 
 ## CO measures
 CO.data <- f_build_data(air.q.data, GT = "CO.GT.", PT08 = "PT08.S1.CO.")
@@ -146,24 +83,6 @@ CO.data <- f_time_labels(CO.data)
 
 # Plot relationship between transformed variables
 qplot(log.PT08.S1.CO., log.CO.GT., data = CO.data)
-
-# Model relationship
-CO.model <- lm(log.CO.GT. ~ log.PT08.S1.CO., data = CO.data)
-summary(CO.model)
-plot(CO.model)
-
-# Remove outliers & re-train model
-CO.data.no.outliers <- f_remove_outliers(CO.data, c(2764:2765, 4513:4518, 5703, 5785:5786, 5793, 6800, 6815:6819, 6825, 6837, 7123))
-
-CO.model.2 <- lm(log.CO.GT. ~ log.PT08.S1.CO., data = CO.data.no.outliers)
-summary(CO.model.2)
-plot(CO.model.2)
-
-# Measure performance of new model
-CO.data <- f_predict(CO.data, CO.model.2, "log.CO.GT.")
-
-f_plot_prediction_ci(CO.data, "log.PT08.S1.CO.", "log.CO.GT.")
-
 
 
 
@@ -186,17 +105,56 @@ NOx.data <- f_time_labels(NOx.data)
 # Plot relationship between transformed variables
 qplot(log.PT08.S3.NOx., log.NOx.GT., data = NOx.data)
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#### 2) Sensor Performance ####
+
+# Model relationship
+CO.model <- lm(log.CO.GT. ~ log.PT08.S1.CO., data = CO.data)
+summary(CO.model)
+plot(CO.model)
+
+# Remove outliers & re-train model
+CO.data.no.outliers <- f_remove_outliers(CO.data, c(2764:2765, 4513:4518, 5703, 5785:5786, 5793, 6800, 6815:6819, 6825, 6837, 7123))
+
+CO.model.2 <- lm(log.CO.GT. ~ log.PT08.S1.CO., data = CO.data.no.outliers)
+summary(CO.model.2)
+plot(CO.model.2)
+
+# Measure performance of new model
+CO.data <- f_predict(CO.data, CO.model.2, "log.CO.GT.")
+
+f_plot_prediction_ci(CO.data, "log.PT08.S1.CO.", "log.CO.GT.")
+
+
+
+
+
+
+
 # Model relationship
 NOx.model <- lm(log.NOx.GT. ~ log.PT08.S3.NOx., data = NOx.data)
 summary(NOx.model)
 plot(NOx.model)
 
 # Remove outliers & re-train model
-NOx.data.no.outliers <- f_remove_outliers(NOx.data, c(2897, 5027:5029))
+NOx.data.no.outliers <- f_remove_outliers(NOx.data, c(2897, 3031, 3044, 5026:5029))
 
 NOx.model.2 <- lm(log.NOx.GT. ~ log.PT08.S3.NOx., data = NOx.data.no.outliers)
-summary(CO.model.2)
-plot(CO.model.2)
+summary(NOx.model.2)
+plot(NOx.model.2)
 
 # Measure performance of new model
 NOx.data <- f_predict(NOx.data, NOx.model.2, "log.NOx.GT.")
@@ -214,282 +172,34 @@ f_plot_prediction_ci(NOx.data, "log.PT08.S3.NOx.", "log.NOx.GT.")
 
 
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#### 2) Polution Forecasts ####
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 
-
-### CO forecasts
-
-# Generate a CO dataset with imputed values for missing data
-library(imputeTS)
-library(forecast)
-
-# Use daily measures
-
-CO.ts <- CO.data %>% select(day, month, year, log.CO.GT.) %>%
-  group_by(day, month, year) %>%
-  summarise(daily.mean = mean(log.CO.GT.)) %>%
-  ungroup() %>%
-  arrange(year, month, day) %>%
-  select(daily.mean)
-
-CO.ts <- CO.data %>% select(week, year, log.CO.GT.) %>%
-  group_by(week, year) %>%
-  summarise(weekly.mean = mean(log.CO.GT.)) %>%
-  ungroup() %>%
-  arrange(year, week) %>%
-  select(weekly.mean)
-
-CO.ts <- msts(CO.ts, seasonal.periods = c(52), start = 2004 + 69/365.25)
-plot(CO.ts)
-
-CO.arima <- auto.arima(CO.ts)
-CO.forecast <- forecast(CO.arima, h = 15)
-plot(CO.forecast)
-
-
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#### 3) Bootstrap differences- daytime, weekday, etc. ####
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-#### Functions
-
-f_adjust_hourly <- function(data, target.col) {
-  
-  data$target <- data[,target.col]
-  
-  # Get daily means
-  daily.averages <- data %>% select(day, month, year, target) %>%
-    group_by(day, month, year) %>% 
-    summarise(daily.mean = mean(target)) %>%
-    ungroup()
-  
-  # Merge daily means back into dataset
-  data <- merge(data, daily.averages, by = c("day", "month", "year"))
-  
-  # Calculate relative CO concentration
-  data <- data %>% mutate(rel.daily.target = target - daily.mean)
-  
-  return(data)
-}
-
-f_adjust_daily <- function(data, target.col) {
-  data$target <- data[,target.col]
-  
-  # Build dataset with daily averages
-  wday.averages <- data %>% select(wday, week, year, target) %>%
-    group_by(wday, week, year) %>%
-    summarise(daily.mean = mean(target)) %>%
-    ungroup()
-  
-  # Get daily means
-  weekly.averages <- wday.averages %>% select(week, year, daily.mean) %>%
-    group_by(week, year) %>%
-    summarise(weekly.mean = mean(daily.mean)) %>%
-    ungroup()
-  
-  # Merge daily means back into dataset
-  wday.averages <- merge(wday.averages, weekly.averages, by = c("week", "year"))
-  
-  # Calculate relative CO concentration
-  wday.averages <- wday.averages %>% mutate(rel.daily.target = daily.mean - weekly.mean)
-  
-  return(wday.averages)
-}
-
-f_timeplot <- function(data, x, y, color, alpha = 0.5, midpoint) {
-  data$fun.x <- data[,x]
-  data$fun.y <- data[,y]
-  data$fun.color <- data[,color]
-  
-  g.plot <- ggplot(data, aes(jitter(fun.x), fun.y)) +
-    geom_point(aes(color = fun.color, alpha = alpha, size = 1)) +
-    scale_color_gradient2(mid = "red", high = "blue", low = "blue", midpoint = midpoint) +
-    geom_smooth()
-  
-  print(g.plot)
-}
-
-f_multilevel_one.boot <- function(data, independent, dependent, type = "mean", R.count = 10000) {
-  ## Description: This function generates bootstrap samples of each level
-  ##              of an independent variable (e.g. "ford" and "gm" levels of variable "make").
-  ## Arguments:
-  ##    data: dataframe
-  ##    independent: independent variable column name
-  ##    dependent: dependent variable column name
-  ##    type: mean or median bootsrap
-  ##    R.count: number of bootstrap samples
-  
-  # Break out target levels
-  if(class(data[, independent]) != "factor") {
-    data[,independent] <- as.factor(data[,independent])
-  }
-  
-  boot.levels <- levels(data[, independent])
-  
-  # Bootstrap means/medians of each level of independent variable
-  boots <- data.frame()  # Pre-allocate results dataframe
-  for (i in 1:length(boot.levels)) {
-    current.level.data <- data[which(data[, independent] == boot.levels[i]), ]  # Data for current level of independent variable
-    boot.level <- one.boot(current.level.data[, dependent], substitute(type), R = R.count)  # Bootstrap R.count iterations of mean/median of current data
-    boots <- rbind(boots, t(boot.level$t))  # Append results to boots dataframe
-  }
-  
-  # Re-orient results and name columns with independent variable levels
-  boots <- as.data.frame(t(boots))
-  colnames(boots) <- boot.levels
-  
-  return(boots)
-}
-
-f_multilevel_two.boot <- function(data, independent, dependent, type = "mean", R.count = 10000) {
-  ## Description: This function generates bootstrap samples of DIFFERENCES between each level
-  ##              of an independent variable (e.g. "ford" and "gm" levels of variable "make").
-  ## Arguments:
-  ##    data: dataframe
-  ##    independent: independent variable column name
-  ##    dependent: dependent variable column name
-  ##    type: mean or median bootsrap
-  ##    R.count: number of bootstrap samples
-  
-  
-  # List out all levels of independent variable
-  if(class(data[, independent]) != "factor") {
-    data[,independent] <- as.factor(data[,independent])
-  }
-  
-  boot.levels <- levels(data[, independent])
-  
-  # Generate all combinations of levels
-  # Example:
-  #     1    2    3
-  # 1  1,1  1,2  1,3
-  # 2  2,1  2,2  2,3
-  # 3  3,1  3,2  3,3
-  boot.combinations <- expand.grid(boot.levels, boot.levels)
-  
-  # Remove comparisons of a level to itself
-  # Example: Remove 1,1  2,2  and 3,3
-  boot.combinations <- boot.combinations[which(boot.combinations$Var1 != boot.combinations$Var2),]
-  
-  # Generate numeric columns from factor levels for easy manipulation
-  boot.combinations$Num1 <- as.numeric(boot.combinations$Var1)
-  boot.combinations$Num2 <- as.numeric(boot.combinations$Var2)
-  # Use numeric values to remove duplicate, but reversed comparisons
-  # Example: 1,2 and 2,1 are the same. Note that in the upper half of the diagonal matrix, the
-  #          row number is always lower than the column number. This makes a simple filtering rule:
-  #     1     2      3
-  # 1  1,1  [1,2]  [1,3]
-  # 2  2,1   2,2   [2,3]
-  # 3  3,1   3,2    3,3
-  boot.combinations <- boot.combinations[which(boot.combinations$Num1 < boot.combinations$Num2), ]
-  # Remove numeric columns now that we're done filtering.
-  boot.combinations <- boot.combinations %>% select(Var1, Var2)
-  
-  # Generate bootstraps for the pairs.
-  boots <- data.frame()
-  for (i in 1:nrow(boot.combinations)) {
-    sample.a <- data[which(data[, independent] == boot.combinations$Var1[i]), ]
-    sample.b <- data[which(data[, independent] == boot.combinations$Var2[i]), ]
-    
-    two.boot.temp <- two.boot(sample.a[, dependent], sample.b[, dependent], substitute(type), R = R.count)
-    
-    boots <- rbind(boots, t(two.boot.temp$t))
-  }
-  
-  # Re-orient results and add column names
-  boots <- as.data.frame(t(boots))
-  colnames(boots) <- paste(boot.combinations$Var1, boot.combinations$Var2, sep = ".")
-  
-  return(boots)
-}
-
-plot.hist <- function(a, maxs, mins, cols = 'difference of means', nbins = 80, p = 0.05) {
-  ## Description: Histogram plotting function copied from DS350 course code. 
-  breaks = seq(maxs, mins, length.out = (nbins + 1))
-  hist(a, breaks = breaks, main = paste('Histogram of', cols), xlab = cols)
-  abline(v = mean(a), lwd = 4, col = 'red')
-  abline(v = 0, lwd = 4, col = 'blue')
-  abline(v = quantile(a, probs = p/2), lty = 3, col = 'red', lwd = 3)  
-  abline(v = quantile(a, probs = (1 - p/2)), lty = 3, col = 'red', lwd = 3)
-}
-
-f_multi_hist <- function(data, simplify = FALSE, nbins = 80, p = 0.05,
-                         plot.title = "Histogram", y.label = "mean target", x.label = "Level"){
-  ## Description: Builds multiple histograms of bootstrap results for variables with multiple levels.
-  ##              There is a "simplify" option to collapse histograms into simpler point-ranges for 
-  ##              cases where too many levels (more than ~5) generate an overwhelming number of histograms.
-  ##
-  ## Arguments:
-  ##    data: Bootstrap results
-  ##    simplify: Generates point-ranges instead of histograms when TRUE
-  ##    nbins: Number of histogram bins
-  ##    p: Confidence interval threshold
-  ##    plot.title: Plot title
-  ##    y.label: X label
-  ##    x.label: Y label
-  
-  # Get max and min values for plot limits
-  maxs = max(data)
-  mins = min(data)
-  
-  
-  # Show histograms when simplify == FALSE
-  if (simplify == FALSE) {
-    # Use par to merge multiple plots into a single plot window. Use ncol(data) to make as many plots as there are levels.
-    par(mfrow = c(ncol(data), 1))
-    # Generate each individual plot and add to the plot layout initiated in the previous line.
-    for (i in 1:ncol(data)) {
-      plot.hist(data[, i], maxs, mins, cols = colnames(data)[i])
-    }
-    title(plot.title, outer = TRUE, cex.main = 2)
-    # Reset plot window to 1x1 for future plots
-    par(mfrow = c(1, 1))
-  }
-  
-  
-  # Condense into pointrange plots when simplify == TRUE
-  if (simplify == TRUE) {
-    # Calculate mean, upr, lwr values
-    mean <- apply(data, 2, mean)
-    upr <- apply(data, 2, function(x) quantile(x, probs = 1 - p/2))
-    lwr <- apply(data, 2, function(x) quantile(x, probs = p/2))
-    # Combine basic stats into a dataframe
-    plot.data <- data.frame("name" = colnames(data), mean, upr, lwr)
-    # Make name column a factor type, and order factor levels by their means for ordered plotting
-    plot.data$name <- factor(plot.data$name, levels = plot.data$name[order(plot.data$mean)])
-    
-    # Generate pointrange plot of bootstrap results
-    p.multi <- ggplot(plot.data, aes(x = name, y = mean, ymin = lwr, ymax = upr)) +
-      geom_pointrange() +
-      coord_flip() +
-      geom_hline(yintercept = 0) +
-      lims(y = c(min(plot.data$lwr), max(plot.data$upr))) +
-      labs(title = plot.title, y = y.label, x = x.label)
-    print(p.multi)
-  }
-}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#### 2) Compare differences- daytime, weekday, etc. ####
 
 
 #### CO Differences
 
 ### By time of day
-CO.data <- f_adjust_hourly(CO.data, "log.CO.GT.")
-f_timeplot(CO.data, x = "time", y = "rel.daily.target", color = "month", midpoint = 6)
+CO.data.periodic <- f_adjust_hourly(CO.data, "log.CO.GT.")
+f_timeplot(CO.data.periodic, x = "time", y = "rel.daily.target", color = "month", midpoint = 6)
 
 # Bootsrap differences between hours
-CO.hourly.boot <- f_multilevel_one.boot(CO.data, "time", "rel.daily.target")
+CO.hourly.boot <- f_multilevel_one.boot(CO.data.periodic, "time", "rel.daily.target")
 f_multi_hist(CO.hourly.boot, simplify = TRUE)
 
 # Compare bootstrapped means
-CO.hourly.two.boot <- f_multilevel_two.boot(CO.data, "time", "rel.daily.target")
+CO.hourly.two.boot <- f_multilevel_two.boot(CO.data.periodic, "time", "rel.daily.target")
 f_multi_hist(CO.hourly.two.boot, simplify = TRUE)
+
+# ANOVA Comparison
+CO.data.periodic$time <- as.factor(CO.data.periodic$time)
+CO.hourly.ANOVA <- f_anova_analyses(data = CO.data.periodic, formula = formula(log.CO.GT. ~ time),
+                                    truncate = TRUE)
 
 
 ### By weekday
-wday.averages <- f_adjust_daily(CO.data, target.col = "log.CO.GT.")
+wday.averages <- f_adjust_daily(CO.data.periodic, target.col = "log.CO.GT.")
 f_timeplot(wday.averages, x = "wday", y = "rel.daily.target", color = "week", midpoint = 26)
 
 # Bootsrap differences between hours
@@ -500,7 +210,10 @@ f_multi_hist(CO.daily.boot, simplify = TRUE)
 CO.daily.two.boot <- f_multilevel_two.boot(wday.averages, "wday", "rel.daily.target")
 f_multi_hist(CO.daily.two.boot, simplify = TRUE)
 
-
+# ANOVA comparison
+CO.data.periodic$wday <- as.factor(CO.data.periodic$wday)
+CO.daily.ANOVA <- f_anova_analyses(data = CO.data.periodic, formula = formula(log.CO.GT. ~ wday),
+                                    truncate = TRUE)
 
 
 
@@ -508,21 +221,26 @@ f_multi_hist(CO.daily.two.boot, simplify = TRUE)
 
 #### NOx differences
 ### By time of day
-NOx.data <- f_adjust_hourly(NOx.data, "log.NOx.GT.")
-f_timeplot(NOx.data, x = "time", y = "rel.daily.target", color = "month", midpoint = 6)
+NOx.data.periodic <- f_adjust_hourly(NOx.data, "log.NOx.GT.")
+f_timeplot(NOx.data.periodic, x = "time", y = "rel.daily.target", color = "month", midpoint = 6)
 
 # Bootsrap differences between hours
-NOx.hourly.boot <- f_multilevel_one.boot(NOx.data, "time", "rel.daily.target")
+NOx.hourly.boot <- f_multilevel_one.boot(NOx.data.periodic, "time", "rel.daily.target")
 f_multi_hist(NOx.hourly.boot, simplify = TRUE)
 
 # Compare bootstrapped means
-NOx.hourly.two.boot <- f_multilevel_two.boot(NOx.data, "time", "rel.daily.target")
+NOx.hourly.two.boot <- f_multilevel_two.boot(NOx.data.periodic, "time", "rel.daily.target")
 f_multi_hist(NOx.hourly.two.boot, simplify = TRUE)
+
+# ANOVA Comparison
+NOx.data.periodic$time <- as.factor(NOx.data.periodic$time)
+NOx.hourly.ANOVA <- f_anova_analyses(data = NOx.data.periodic, formula = formula(log.NOx.GT. ~ time),
+                                    truncate = TRUE)
 
 
 ### By weekday
 # Build dataset with daily averages
-wday.averages <- f_adjust_daily(NOx.data, target.col = "log.NOx.GT.")
+wday.averages <- f_adjust_daily(NOx.data.periodic, target.col = "log.NOx.GT.")
 f_timeplot(wday.averages, x = "wday", y = "rel.daily.target", color = "week", midpoint = 26)
 
 # Bootsrap differences between hours
@@ -533,35 +251,54 @@ f_multi_hist(NOx.daily.boot, simplify = TRUE)
 NOx.daily.two.boot <- f_multilevel_two.boot(wday.averages, "wday", "rel.daily.target")
 f_multi_hist(NOx.daily.two.boot, simplify = TRUE)
 
+# ANOVA Comparison
+NOx.data.periodic$wday <- as.factor(NOx.data.periodic$wday)
+NOx.daily.ANOVA <- f_anova_analyses(data = NOx.data.periodic, formula = formula(log.NOx.GT. ~ wday),
+                                    truncate = TRUE)
 
 
 
 
 
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-#### 4) Correlation of benzene to pollutants ####
-#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-## Benzene - CO
-C6H6.CO <- f_build_data(air.q.data, GT = "CO.GT.", PT08 = "C6H6.GT.")
 
-# Check normality of variables
-f_normplots(C6H6.CO)
-f_shapiro(C6H6.CO$CO.GT.)
-f_shapiro(C6H6.CO$C6H6.GT.)
 
-# Apply transforms
-C6H6.CO$log.CO.GT. <- log(C6H6.CO$CO.GT.)
-C6H6.CO$log.C6H6.GT. <- log(C6H6.CO$C6H6.GT.)
 
-# Add time labels
-C6H6.CO <- f_time_labels(C6H6.CO)
 
-# Plot relationship between transformed variables
-qplot(log.C6H6.GT., log.CO.GT., data = C6H6.CO)
 
-co.by.time <- ggplot(C6H6.CO, aes(log.C6H6.GT., log.CO.GT.)) +
-  geom_point(aes(colour = month, alpha = 0.3, size = 1)) +
-  scale_color_gradient2(mid="red", high="blue", low="blue", midpoint = 6)
-co.by.time
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#### 3) Effect of Benzene on NOx (VW scandal) ####
+
+## NOx-Benzene measures
+NOx.Benzene.data <- air.q.data %>% select(NOx.GT., C6H6.GT., T, RH, AH) %>%
+  mutate(log.NOx.GT. = log(NOx.GT.)) %>%
+  mutate(log.C6H6.GT. = log(C6H6.GT.)) %>%
+  mutate(log.T.Kelvin = log((T + 273.15))) %>%
+  mutate(log.RH = log(RH)) %>%
+  mutate(log.AH = log(AH))
+
+
+qplot(log.NOx.GT., log.C6H6.GT., color = log.T.Kelvin, data = NOx.Benzene.data)
+qplot(log.NOx.GT., log.C6H6.GT., color = log.RH, data = NOx.Benzene.data)
+qplot(log.NOx.GT., log.C6H6.GT., color = log.AH, data = NOx.Benzene.data)
+
+# Model basic relationship
+Benzene.NOx.model <- lm(log.NOx.GT. ~ log.C6H6.GT., data = NOx.Benzene.data)
+summary(Benzene.NOx.model)
+plot(Benzene.NOx.model)
+
+# Add environmental variables (Temp, Humidity)
+Benzene.NOx.Temp.model <- lm(log.NOx.GT. ~ log.C6H6.GT. + log.T.Kelvin + log.AH + log.RH, data = NOx.Benzene.data)
+summary(Benzene.NOx.Temp.model)
+plot(Benzene.NOx.Temp.model)
+
+# Remove outliers & re-train model
+Benzene.data.no.outliers <- f_remove_outliers(NOx.Benzene.data, c(1951, 1953, 3467, 3640, 3657, 4759, 7693, 8178))
+
+Benzene.model.final <- lm(log.NOx.GT. ~ log.C6H6.GT. + log.T.Kelvin + log.AH + log.RH, data = Benzene.data.no.outliers)
+summary(Benzene.model.final)
+plot(Benzene.model.final)
+
+
+
 

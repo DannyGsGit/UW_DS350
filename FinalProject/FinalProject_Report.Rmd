@@ -1,0 +1,412 @@
+---
+title: "UW DS350 Final Project"
+author: "Danny Godbout"
+date: "August 22, 2016"
+output: html_document
+---
+
+
+```{r global_options, include = FALSE}
+# Set global knitr options
+
+knitr::opts_chunk$set(comment = "", echo = FALSE, warning = FALSE, message = FALSE)
+
+
+```
+
+
+
+```{r, echo = FALSE}
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(car)
+library(simpleboot)
+library(knitr)
+library(RColorBrewer)
+
+source('FinalProject_Functions.R')
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#### Data Import ####
+
+## Import raw data
+air.q.data <- read.csv("data/AirQualityUCI.csv", header = TRUE, stringsAsFactors = FALSE)
+
+## Build clean date column
+air.q.data$timestamp <- paste(air.q.data$Date, air.q.data$Time, sep = " ") 
+air.q.data$timestamp <-mdy_hms(air.q.data$timestamp)
+```
+
+##  {.tabset}
+
+### Summary
+
+The [dataset](http://archive.ics.uci.edu/ml/datasets/Air+Quality) used in this project contains 9357 observations of air quality measurements from an Italian city, recorded from March 2004 to February 2005. 
+
+Following an initial exploration of the dataset, this project seeks to investigate the following questions:
+
+1. Are CO and NOx sensor measurements reliable, with respect to gold standard measures?
+
+2. What times of day exhibit the highest/lowest levels of CO and NOx polution? Days of the week?
+
+3. How do levels of NOx air polution correlate with the presence of petroleum-based fuel sources?
+
+
+
+### Initial Exploration
+
+The [dataset](http://archive.ics.uci.edu/ml/datasets/Air+Quality) used in this project contains 9357 observations of air quality measurements from an Italian city, recorded from March 2004 to February 2005. 
+
+According to the data source, the column names are defined as:
+
+1. Date	(DD/MM/YYYY) 
+2. Time	(HH.MM.SS) 
+3. True hourly averaged concentration CO in mg/m^3 (reference analyzer) 
+4. PT08.S1 (tin oxide) hourly averaged sensor response (nominally CO targeted)	
+5. True hourly averaged overall Non Metanic HydroCarbons concentration in microg/m^3 (reference analyzer) 
+6. True hourly averaged Benzene concentration in microg/m^3 (reference analyzer) 
+7. PT08.S2 (titania) hourly averaged sensor response (nominally NMHC targeted)	
+8. True hourly averaged NOx concentration in ppb (reference analyzer) 
+9. PT08.S3 (tungsten oxide) hourly averaged sensor response (nominally NOx targeted) 
+10. True hourly averaged NO2 concentration in microg/m^3 (reference analyzer)	
+11. PT08.S4 (tungsten oxide) hourly averaged sensor response (nominally NO2 targeted)	
+12. PT08.S5 (indium oxide) hourly averaged sensor response (nominally O3 targeted) 
+13. Temperature in Â°C	
+14. Relative Humidity (%) 
+15. AH Absolute Humidity 
+16. Concatenated Date-Time column
+
+After importing the data, we review the summary of the dataset:
+
+```{r}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#### Exploration ####
+
+## View the data structure
+str(air.q.data)
+```
+
+Furthermore, a brief review of the pair plot appears to show correlation between many variables. This is not very surprising, as it is reasonable to assume many forms of air polution might share sources like vehicle or building exhaust.
+
+``` {r}
+## Investigate pair plots
+# pairs(air.q.data[,3:15])
+```
+
+Focusing specifically on CO and NOx measurements, the variable normality plots reveal deviations from normality in both sensor and gold standard records for both pollutants. *Log transformations of all measures will be used for analysis.*
+
+``` {r}
+
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#### 1) Generate Data Subsets ####
+
+## CO measures
+CO.data <- f_build_data(air.q.data, GT = "CO.GT.", PT08 = "PT08.S1.CO.")
+
+# Check normality of variables
+f_normplots(CO.data)
+print("Shapiro-Wilk test of CO.GT.")
+f_shapiro(CO.data$CO.GT.)  # Use log
+print("Shapiro-Wilk test of PT08.S1.CO.")
+f_shapiro(CO.data$PT08.S1.CO.)  # Use log
+
+# Apply transforms
+CO.data$log.CO.GT. <- log(CO.data$CO.GT.)
+CO.data$log.PT08.S1.CO. <- log(CO.data$PT08.S1.CO.)
+
+# Add time labels
+CO.data <- f_time_labels(CO.data)
+
+
+
+
+## NOX measures
+NOx.data <- f_build_data(air.q.data, GT = "NOx.GT.", PT08 = "PT08.S3.NOx.")
+
+# Check normality of variables
+f_normplots(NOx.data)
+print("Shapiro-Wilk test of NOx.GT.")
+f_shapiro(NOx.data$NOx.GT.)
+print("Shapiro-Wilk test of PT08.S3.NOx.")
+f_shapiro(NOx.data$PT08.S3.NOx.)
+
+# Apply transforms
+NOx.data$log.NOx.GT. <- log(NOx.data$NOx.GT.)
+NOx.data$log.PT08.S3.NOx. <- log(NOx.data$PT08.S3.NOx.)
+
+# Add time labels
+NOx.data <- f_time_labels(NOx.data)
+```
+
+
+
+
+### Project Questions
+
+From the initial investigation, a few observations focus the scope of this project:
+
+* Variables including PT08 and GT in their names represent field sensor and gold standard measurements, respectively, of same variables.
+
+* CO and NOx are commonly discussed air pollution variables and will be the focus of this project.
+
+* One column, C6H6.GT., measures benzene concentration, which ostensibly indicates vehicular traffic.
+
+
+These observations generate the following questions for investigation:
+
+1. Are sensor measurements reliable, with respect to gold standard measures?
+
+2. What times of day exhibit the highest/lowest levels of polution? Days of the week?
+
+3. How do levels of NOx and CO air polution correlate with the presence of petroleum-based fuel sources?
+
+
+### 1 Sensor Performance
+
+We use a linear model to evaluate the ability to predict the gold standard value of a polution level from the sensor reading.
+
+Final iterations of the linear models for each pollutant (CO and NOx) show a reasonable R-squared of 0.74 for CO, providing good directional measurements. Meanwhile the NOx sensor only achieved an R-squared of 0.62, perhaps a bit weak.
+
+***
+#### CO Sensor Performance
+
+Fitting a linear model to predict gold standard CO measurements from CO sensor data produces the following model with a reasonable R-squared of 0.7174. The diagnostic plots show extensive deviation of residuals from normality and multiple points with high residual-leverage. 
+* Note that the model uses log transforms of both sensor and gold standard measures *
+``` {r}
+#~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
+#### 2) Sensor Performance ####
+
+# Model relationship
+CO.model <- lm(log.CO.GT. ~ log.PT08.S1.CO., data = CO.data)
+summary(CO.model)
+plot(CO.model)
+```
+
+To fine-tune the model, points identified in the diagnostic plots are removed and the model is re-compiled. R-squared improves to 0.7426.
+
+``` {r}
+# Remove outliers & re-train model
+CO.data.no.outliers <- f_remove_outliers(CO.data, c(2764:2765, 4513:4518, 5703, 5785:5786, 5793, 6800, 6815:6819, 6825, 6837, 7123))
+
+CO.model.2 <- lm(log.CO.GT. ~ log.PT08.S1.CO., data = CO.data.no.outliers)
+summary(CO.model.2)
+plot(CO.model.2)
+
+# Measure performance of new model
+CO.data <- f_predict(CO.data, CO.model.2, "log.CO.GT.")
+```
+
+Finally, we overlay the prediction of CO.GT. from the PT08 sensor measurement with 95% confidence intervals on actual measurements from CO.GT. for visual inspection.
+
+``` {r}
+f_plot_prediction_ci(CO.data, "log.PT08.S1.CO.", "log.CO.GT.")
+```
+
+***
+#### NOx Sensor Performance
+
+The NOx gold standard was similarly modeled by the PT08 NOx sensor measurement. The initial model returns an R-squared of 0.6153, with similar outliers evident in the diagnostic plots.
+
+Again, log-transforms of both variables are used. Interestingly, there is a negative correlation between the sensor and gold standard measurements, but this is not necesarilly problematic. 
+``` {r}
+# Model relationship
+NOx.model <- lm(log.NOx.GT. ~ log.PT08.S3.NOx., data = NOx.data)
+summary(NOx.model)
+plot(NOx.model)
+```
+
+After removing outliers, R-squared improves to 0.6247- not quite as good a match as the CO sensor.
+``` {r}
+# Remove outliers & re-train model
+NOx.data.no.outliers <- f_remove_outliers(NOx.data, c(2897, 3031, 3044, 5026:5029))
+
+NOx.model.2 <- lm(log.NOx.GT. ~ log.PT08.S3.NOx., data = NOx.data.no.outliers)
+summary(NOx.model.2)
+plot(NOx.model.2)
+```
+
+Finally, plotting the prediction of the linear model with 95% confidence intervals against actual NOx.GT. measures produces the following image.
+``` {r}
+# Measure performance of new model
+NOx.data <- f_predict(NOx.data, NOx.model.2, "log.NOx.GT.")
+
+f_plot_prediction_ci(NOx.data, "log.PT08.S3.NOx.", "log.NOx.GT.")
+```
+
+
+
+
+
+### 2 Periodic Means
+
+To answer the hypothetical questions of "what is the best time of day to breathe?" or "what day of the week has the cleanest air?", we review the concentrations of CO and NOx over the course of a day and week.
+
+This section compares the hourly and daily means of CO and NOx through bootstrap and ANOVA analyses. Both pollutants show similar trends in hourly and daily profiles:
+
+* Hourly polution is lowest in the early morning hours (2-5AM) and peaks for rush-hour commute times (8-9AM and 6-8PM).
+
+* Daily polution is lowest on Sunday, building up to peak on Fridays.
+
+5AM on Sunday is a good time to be outside in Italy.
+
+***
+#### CO Daily Concentration
+
+In order to evaluate the relative concentration of CO over the course of a day, the daily mean CO level was subtracted from hourly measurements. The adjusted values for all hourly measures are plotted below. Points are heat-mapped by month (June is red/ New year is blue) to visually inspect seasonal trends in the daily profile. The loess smoothed mean initially indicates a low-point in CO at approximately 4AM, and peaks near rush hour times of 8AM and 6-7PM. 
+
+``` {r}
+#### CO Differences
+
+### By time of day
+CO.data.periodic <- f_adjust_hourly(CO.data, "log.CO.GT.")
+f_timeplot(CO.data.periodic, x = "time", y = "rel.daily.target", color = "month", midpoint = 6)
+```
+
+To further discern between hourly means, we bootstrap the means for each hour. The bootstrap confirms the early morning hours (2-5AM) are significantly lower. The 6-8PM timespan, conversely, shows the highest rates of pollution, with the 8-9AM morning commute closely following.
+``` {r}
+# Bootsrap differences between hours
+CO.hourly.boot <- f_multilevel_one.boot(CO.data.periodic, "time", "rel.daily.target")
+f_multi_hist(CO.hourly.boot, simplify = TRUE)
+```
+
+Comparing bootstrap results to the Tukey HSD ANOVA, we similarly see the largest differences between the rush hour times and the early morning hours (See 19-5).
+
+``` {r}
+# ANOVA Comparison
+CO.data.periodic$time <- as.factor(CO.data.periodic$time)
+CO.hourly.ANOVA <- f_anova_analyses(data = CO.data.periodic, formula = formula(log.CO.GT. ~ time),
+                                    truncate = TRUE)
+```
+
+***
+#### CO Weekly Concrentration
+
+Plotting daily CO concentrations over the course of a week produces the follow plot, appearing to show lower concentrations on Sunday (1), increasing steadily over the workweek to a peak on Thursday/Friday (5/6), before beginning to decline on Saturday (7).
+``` {r}
+### By weekday
+wday.averages <- f_adjust_daily(CO.data.periodic, target.col = "log.CO.GT.")
+f_timeplot(wday.averages, x = "wday", y = "rel.daily.target", color = "week", midpoint = 26)
+
+```
+
+Daily bootstrapped means confirm Friday (6) CO concentrations, in particular, significantly exceed Sunday-Tuesday and Saturday levels. Sunday (1) stands out for being significantly lower than any other day of the week.
+``` {r}
+# Bootsrap differences between days
+CO.daily.boot <- f_multilevel_one.boot(wday.averages, "wday", "rel.daily.target")
+f_multi_hist(CO.daily.boot, simplify = TRUE)
+```
+
+Comparing bootstrap results to the Tukey HSD ANOVA, we see the largest differences between Sunday (1) and the later-end of the work week (3-6), similar to observations of the bootstrap.
+
+``` {r}
+# ANOVA comparison
+CO.data.periodic$wday <- as.factor(CO.data.periodic$wday)
+CO.daily.ANOVA <- f_anova_analyses(data = CO.data.periodic, formula = formula(log.CO.GT. ~ wday), truncate = TRUE)
+```
+
+***
+#### NOx Daily Concentration
+NOx hourly concentrations follow a very similar profile to the CO hourly plot. 
+``` {r}
+### By time of day
+NOx.data.periodic <- f_adjust_hourly(NOx.data, "log.NOx.GT.")
+f_timeplot(NOx.data.periodic, x = "time", y = "rel.daily.target", color = "month", midpoint = 6)
+```
+
+Examination of the bootstrapped NOx means reveals lows also occuring from 2-5AM. Interestingly, NOx concentrations appear equally high in the morning and evening commutes, while CO concentrations we slightly lower during the morning commute (though still high).
+
+``` {r}
+# Bootsrap differences between hours
+NOx.hourly.boot <- f_multilevel_one.boot(NOx.data.periodic, "time", "rel.daily.target")
+f_multi_hist(NOx.hourly.boot, simplify = TRUE)
+```
+
+Again, the trends seen in the bootstrap are corroborated by ANOVA.
+
+``` {r}
+# ANOVA Comparison
+NOx.data.periodic$time <- as.factor(NOx.data.periodic$time)
+NOx.hourly.ANOVA <- f_anova_analyses(data = NOx.data.periodic, formula = formula(log.NOx.GT. ~ time),
+                                    truncate = TRUE)
+```
+
+
+*** 
+#### NOx Weekly Concentration
+
+NOx daily levels also follow a similar profile to CO daily levels, though appear perhaps more even from Wednesday through Friday.
+
+``` {r}
+### By weekday
+# Build dataset with daily averages
+wday.averages <- f_adjust_daily(NOx.data.periodic, target.col = "log.NOx.GT.")
+f_timeplot(wday.averages, x = "wday", y = "rel.daily.target", color = "week", midpoint = 26)
+```
+
+Once again, Sunday (1) stands out for significantly lower NOx levels. We see that Wednesday and Friday (4 & 6) are significantly higher than Sunday, Monday, and Saturday (1, 2, 7). 
+
+``` {r}
+# Bootsrap differences between hours
+NOx.daily.boot <- f_multilevel_one.boot(wday.averages, "wday", "rel.daily.target")
+f_multi_hist(NOx.daily.boot, simplify = TRUE)
+```
+
+ANOVA shows similar trends, with Sunday (1) standing out as significantly lower than all other days of the week.
+
+``` {r}
+# ANOVA Comparison
+NOx.data.periodic$wday <- as.factor(NOx.data.periodic$wday)
+NOx.daily.ANOVA <- f_anova_analyses(data = NOx.data.periodic, formula = formula(log.NOx.GT. ~ wday),
+                                    truncate = TRUE)
+```
+
+
+### 3 Benzene-NOx Relationship
+
+With NOx receiving attention in 2015-16 from diesel emission scandals, this section examines whether Benzene (C6H6) measurements correlate to increases in NOx particulate measurements. Benzene is a known component of vehicle exhaust and assumed to be a proxy for traffic volume in this case, absent any data to further validate this assumption. The following analyses will show how higher Benzene concentrations correlate to higher NOx, with temperature and humidity exacerbating NOx levels. 
+
+A few exploratory plots show what appears to be a positive correlation between Benzene and NOx. Furthermore, adding a color layer for temperature (T), absolute humidity (AH) and relative humidity (RH) show how temperature and absolute humidity, in particular, may contribute to relatively higher NOx for a given Benzene/traffic level as well.
+
+``` {r}
+## NOx-Benzene measures
+NOx.Benzene.data <- air.q.data %>% select(NOx.GT., C6H6.GT., T, RH, AH) %>%
+  mutate(log.NOx.GT. = log(NOx.GT.)) %>%
+  mutate(log.C6H6.GT. = log(C6H6.GT.)) %>%
+  mutate(log.T.Kelvin = log((T + 273.15))) %>%
+  mutate(log.RH = log(RH)) %>%
+  mutate(log.AH = log(AH))
+
+qplot(log.C6H6.GT., log.NOx.GT., color = log.T.Kelvin, data = NOx.Benzene.data)
+qplot(log.C6H6.GT., log.NOx.GT., color = log.RH, data = NOx.Benzene.data)
+qplot(log.C6H6.GT., log.NOx.GT., color = log.AH, data = NOx.Benzene.data)
+```
+
+A basic linear model showing the relationship between Benzene and NOx returns a middling R-squared of 0.51.
+
+``` {r}
+# Model basic relationship
+Benzene.NOx.model <- lm(log.NOx.GT. ~ log.C6H6.GT., data = NOx.Benzene.data)
+summary(Benzene.NOx.model)
+```
+
+Adding temperature and humidity factors, we see R-squared jump to 0.77.
+
+``` {r}
+# Add environmental variables (Temp, Humidity)
+Benzene.NOx.Temp.model <- lm(log.NOx.GT. ~ log.C6H6.GT. + log.T.Kelvin + log.AH + log.RH, data = NOx.Benzene.data)
+summary(Benzene.NOx.Temp.model)
+plot(Benzene.NOx.Temp.model)
+```
+
+Removing outliers found in the diagnostic plots has little impact on the model performance.
+
+``` {r}
+# Remove outliers & re-train model
+Benzene.data.no.outliers <- f_remove_outliers(NOx.Benzene.data, c(1951, 1953, 3467, 3640, 3657, 4759, 7693, 8178))
+
+Benzene.model.final <- lm(log.NOx.GT. ~ log.C6H6.GT. + log.T.Kelvin + log.AH + log.RH, data = Benzene.data.no.outliers)
+summary(Benzene.model.final)
+```
+
+This result not only shows how increased Benzene levels (and by assumed extension, traffic levels) correlate to increasing NOx polution, we also see how increasing temperature and humidity exacerbate the condition.
