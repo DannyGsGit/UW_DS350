@@ -52,6 +52,11 @@ Following an initial exploration of the dataset, this project seeks to investiga
 
 3. How do levels of NOx air polution correlate with the presence of petroleum-based fuel sources?
 
+For the first question, correlation analysis between sensor and gold standard measurements show reasonable performance (R^2 = 0.74) for CO sensors, but marginal performance for the NO sensor (R^@ = 0.62).
+
+Reviewing daily and weekly trends in polution concentrations, bootstraps and ANOVAs show both CO and NOx are significantly lower in the early morning hours, and peak during morning and evening commute times. Sundays show the lowest polution levels, with steadily increasing levels to Thursday and Friday peaks.
+
+Finally, strong correlation was found between NOx and Benzene (R^2 = 0.78), with temperature and humidity exacerbating NOx concentrations for a given level of Benzene.
 
 
 ### Initial Exploration
@@ -91,7 +96,7 @@ Furthermore, a brief review of the pair plot appears to show correlation between
 
 ``` {r}
 ## Investigate pair plots
-# pairs(air.q.data[,3:15])
+pairs(air.q.data[,3:15])
 ```
 
 Focusing specifically on CO and NOx measurements, the variable normality plots reveal deviations from normality in both sensor and gold standard records for both pollutants. *Log transformations of all measures will be used for analysis.*
